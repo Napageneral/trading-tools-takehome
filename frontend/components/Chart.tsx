@@ -3,26 +3,39 @@ import * as am5 from '@amcharts/amcharts5';
 import * as am5xy from '@amcharts/amcharts5/xy';
 import * as am5stock from '@amcharts/amcharts5/stock';
 import am5themes_Animated from '@amcharts/amcharts5/themes/Animated';
+import { GRANULARITIES, Granularity } from '../types/Granularity';
 
 // Define the props interface
-interface AmChartsStockChartProps {
+interface ChartProps {
   data: any[];
   onVisibleRangeChangeWithGranularity?: (range: { from: number; to: number; visibleRangeNs: number }) => void;
+  onGranularityChange?: (granularity: Granularity) => void;
+  onMoveUpGran?: () => void;
+  onMoveDownGran?: () => void;
+  onPanLeft?: (amountNs: number) => void;
+  onPanRight?: (amountNs: number) => void;
+  currentGranularity?: Granularity;
   height?: number;
   width?: number;
 }
 
 // Define the handle interface for ref
-export interface AmChartsStockChartHandle {
+export interface ChartHandle {
   fitContent: () => void;
   resetFitContent: () => void;
   getVisibleRange: () => { from: number; to: number } | null;
   getVisibleLogicalRange: () => { from: number; to: number } | null;
 }
 
-const AmChartsStockChart = forwardRef<AmChartsStockChartHandle, AmChartsStockChartProps>(({
+const Chart = forwardRef<ChartHandle, ChartProps>(({
   data,
   onVisibleRangeChangeWithGranularity,
+  onGranularityChange,
+  onMoveUpGran,
+  onMoveDownGran,
+  onPanLeft,
+  onPanRight,
+  currentGranularity,
   height = 500,
   width = 800,
 }, ref) => {
@@ -33,7 +46,15 @@ const AmChartsStockChart = forwardRef<AmChartsStockChartHandle, AmChartsStockCha
   const mainPanelRef = useRef<am5stock.StockPanel | null>(null);
   const shouldFitOnNextLoadRef = useRef(true);
   const lastVisibleRangeRef = useRef<{ from: number; to: number } | null>(null);
-  const currentGranularityRef = useRef<string>("second");
+  const currentGranularityRef = useRef<Granularity | null>(null);
+  const intervalSwitcherRef = useRef<am5stock.IntervalControl | null>(null);
+
+  // Update current granularity ref when prop changes
+  useEffect(() => {
+    if (currentGranularity) {
+      currentGranularityRef.current = currentGranularity;
+    }
+  }, [currentGranularity]);
 
   // Expose methods to parent component
   useImperativeHandle(ref, () => ({
@@ -95,6 +116,22 @@ const AmChartsStockChart = forwardRef<AmChartsStockChartHandle, AmChartsStockCha
       }
     });
   };
+
+  // Listen for fit-chart-content event
+  useEffect(() => {
+    const handleFitContent = () => {
+      if (mainPanelRef.current) {
+        console.log('Fitting chart content');
+        mainPanelRef.current.zoomOut();
+      }
+    };
+
+    document.addEventListener('fit-chart-content', handleFitContent);
+    
+    return () => {
+      document.removeEventListener('fit-chart-content', handleFitContent);
+    };
+  }, []);
 
   // Initialize chart
   useEffect(() => {
@@ -337,7 +374,7 @@ const AmChartsStockChart = forwardRef<AmChartsStockChartHandle, AmChartsStockCha
     });
 
     seriesSwitcher.events.on("selected", function(ev) {
-      setSeriesType(ev.item.id);
+      setSeriesType(ev.item.id as string);
     });
 
     function getNewSettings(series: any) {
@@ -375,7 +412,7 @@ const AmChartsStockChart = forwardRef<AmChartsStockChartHandle, AmChartsStockCha
           newSettings.clustered = false;
           series = mainPanel.series.push(am5xy.CandlestickSeries.new(root, newSettings));
           if (seriesType == "procandlestick") {
-            series.columns.template.get("themeTags").push("pro");
+            series.columns.template.get("themeTags")?.push("pro");
           }
           break;
         case "ohlc":
@@ -397,24 +434,83 @@ const AmChartsStockChart = forwardRef<AmChartsStockChartHandle, AmChartsStockCha
       }
     }
 
+    // Create interval switcher items from our granularity chain
+    const intervalItems = Object.values(GRANULARITIES).map((gran) => {
+      // Map granularity symbol to timeUnit and count
+      let timeUnit: "millisecond" | "second" | "minute" | "hour" | "day" | "week" | "month" | "year" = "second";
+      let count = 1;
+
+      switch (gran.symbol) {
+        case "1t":
+          timeUnit = "millisecond";
+          count = 1;
+          break;
+        case "1s":
+          timeUnit = "second";
+          count = 1;
+          break;
+        case "1m":
+          timeUnit = "minute";
+          count = 1;
+          break;
+        case "5m":
+          timeUnit = "minute";
+          count = 5;
+          break;
+        case "1h":
+          timeUnit = "hour";
+          count = 1;
+          break;
+        case "1d":
+          timeUnit = "day";
+          count = 1;
+          break;
+        case "1w":
+          timeUnit = "week";
+          count = 1;
+          break;
+        case "1M":
+          timeUnit = "month";
+          count = 1;
+          break;
+        case "1y":
+          timeUnit = "year";
+          count = 1;
+          break;
+      }
+
+      return {
+        id: gran.symbol,
+        label: gran.name,
+        interval: { timeUnit, count },
+        granularity: gran
+      };
+    });
+
     // Interval switcher
     const intervalSwitcher = am5stock.IntervalControl.new(root, {
       stockChart: stockChart,
-      items: [
-        { id: "1 second", label: "1 second", interval: { timeUnit: "second", count: 1 } },
-        { id: "1 minute", label: "1 minute", interval: { timeUnit: "minute", count: 1 } },
-        { id: "1 hour", label: "1 hour", interval: { timeUnit: "hour", count: 1 } }
-      ]
+      items: intervalItems
     });
+    
+    intervalSwitcherRef.current = intervalSwitcher;
+
+    // Set initial interval if we have a current granularity
+    if (currentGranularity) {
+      // Find the matching interval item
+      const matchingItem = intervalItems.find(item => item.id === currentGranularity.symbol);
+      if (matchingItem) {
+        // Set the interval
+        dateAxis.set("baseInterval", matchingItem.interval);
+        sbDateAxis.set("baseInterval", matchingItem.interval);
+      }
+    }
 
     intervalSwitcher.events.on("selected", function(ev) {
-      // Determine selected granularity
-      currentGranularityRef.current = ev.item.interval.timeUnit;
-      
-      // Get series
-      const valueSeries = stockChart.get("stockSeries");
-      const volumeSeries = stockChart.get("volumeSeries");
-      
+      // Get selected granularity
+      const selectedGran = (ev.item as any).granularity;
+      currentGranularityRef.current = selectedGran;
+
       // Set up zoomout
       if (valueSeries) {
         valueSeries.events.once("datavalidated", function() {
@@ -422,17 +518,22 @@ const AmChartsStockChart = forwardRef<AmChartsStockChartHandle, AmChartsStockCha
         });
       }
       
-      // Once data loading is done, set `baseInterval` on the DateAxis
-      dateAxis.set("baseInterval", ev.item.interval);
-      sbDateAxis.set("baseInterval", ev.item.interval);
+      // Set `baseInterval` on the DateAxis
+      dateAxis.set("baseInterval", (ev.item as any).interval);
+      sbDateAxis.set("baseInterval", (ev.item as any).interval);
       
       stockChart.indicators.each(function(indicator){
         if (indicator instanceof am5stock.ChartIndicator) {
-          indicator.xAxis.set("baseInterval", ev.item.interval);
+          indicator.xAxis.set("baseInterval", (ev.item as any).interval);
         }
       });
       
-      // Notify parent component of range change
+      // Notify parent component of granularity change
+      if (onGranularityChange) {
+        onGranularityChange(selectedGran);
+      }
+      
+      // Notify parent component of range change if needed
       if (onVisibleRangeChangeWithGranularity && dateAxis.getPrivate("selectionMin") && dateAxis.getPrivate("selectionMax")) {
         const from = dateAxis.getPrivate("selectionMin") as number / 1000;
         const to = dateAxis.getPrivate("selectionMax") as number / 1000;
@@ -470,9 +571,58 @@ const AmChartsStockChart = forwardRef<AmChartsStockChartHandle, AmChartsStockCha
       ]
     });
 
+    // Add buttons to navigate granularity chain
+    const buttonsContainer = am5.Container.new(root, {
+      layout: root.horizontalLayout,
+      x: am5.p50,
+      centerX: am5.p50,
+      y: am5.p100,
+      centerY: am5.p100,
+      marginBottom: 10
+    });
+    
+    stockChart.children.push(buttonsContainer);
+    
+    const moveUpButton = am5.Button.new(root, {
+      paddingTop: 3,
+      paddingBottom: 3,
+      paddingLeft: 5,
+      paddingRight: 5,
+      marginRight: 5,
+      label: am5.Label.new(root, {
+        text: "⬆️ Coarser"
+      })
+    });
+    
+    const moveDownButton = am5.Button.new(root, {
+      paddingTop: 3,
+      paddingBottom: 3,
+      paddingLeft: 5,
+      paddingRight: 5,
+      label: am5.Label.new(root, {
+        text: "⬇️ Finer"
+      })
+    });
+    
+    buttonsContainer.children.push(moveUpButton);
+    buttonsContainer.children.push(moveDownButton);
+    
+    moveUpButton.events.on("click", function() {
+      if (onMoveUpGran) {
+        onMoveUpGran();
+      }
+    });
+    
+    moveDownButton.events.on("click", function() {
+      if (onMoveDownGran) {
+        onMoveDownGran();
+      }
+    });
+
     // Handle range changes
     if (onVisibleRangeChangeWithGranularity) {
-      dateAxis.events.on("selectionextremeschanged", () => {
+      // Using a type assertion to bypass type checking for this event name
+      (dateAxis.events as any).on("selectionextremeschanged", () => {
         if (dateAxis.getPrivate("selectionMin") && dateAxis.getPrivate("selectionMax")) {
           const from = dateAxis.getPrivate("selectionMin") as number / 1000;
           const to = dateAxis.getPrivate("selectionMax") as number / 1000;
@@ -515,7 +665,7 @@ const AmChartsStockChart = forwardRef<AmChartsStockChartHandle, AmChartsStockCha
       // Load data for all series
       const seriesToLoad = [valueSeries, sbSeries];
       if (hasOHLCData && volumeSeries) {
-        seriesToLoad.push(volumeSeries);
+        seriesToLoad.push(volumeSeries as any);
       }
       
       loadData(seriesToLoad, chartData);
@@ -536,7 +686,7 @@ const AmChartsStockChart = forwardRef<AmChartsStockChartHandle, AmChartsStockCha
         rootRef.current.dispose();
       }
     };
-  }, []);
+  }, [onVisibleRangeChangeWithGranularity, onGranularityChange, onMoveUpGran, onMoveDownGran, currentGranularity]);
 
   // Update data when it changes
   useEffect(() => {
@@ -595,6 +745,20 @@ const AmChartsStockChart = forwardRef<AmChartsStockChartHandle, AmChartsStockCha
     }
   }, [data]);
 
+  // Update current interval when granularity changes
+  useEffect(() => {
+    if (currentGranularity && intervalSwitcherRef.current) {
+      // Find the item that matches the granularity
+      const items = intervalSwitcherRef.current.get("items") || [];
+      const matchingItemIndex = items.findIndex((item: any) => item.id === currentGranularity.symbol);
+      
+      if (matchingItemIndex >= 0) {
+        // Set the selected index using type assertion
+        (intervalSwitcherRef.current as any).set("selectedIndex", matchingItemIndex);
+      }
+    }
+  }, [currentGranularity]);
+
   return (
     <div>
       <div ref={controlsDivRef} className="chart-controls" />
@@ -609,4 +773,4 @@ const AmChartsStockChart = forwardRef<AmChartsStockChartHandle, AmChartsStockCha
   );
 });
 
-export default AmChartsStockChart; 
+export default Chart; 

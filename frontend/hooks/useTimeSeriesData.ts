@@ -3,7 +3,7 @@ import { LineData, Time } from 'lightweight-charts';
 import { API_URL } from '../constants/api';
 import { RingBuffer } from '../components/RingBuffer';
 import { debounce } from '../utils/debounce';
-import { pickGranularityWithHysteresis, getNextCoarserGranularity, computeCoverage } from '../utils/granularityUtils';
+import { GRANULARITIES, DEFAULT_GRANULARITY, Granularity } from '../types/Granularity';
 
 interface TimeSeriesDataOptions {
   dynamicGranularity?: boolean;
@@ -16,7 +16,7 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
   const [chartData, setChartData] = useState<LineData<Time>[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [currentGranularity, setCurrentGranularity] = useState<string | null>(null);
+  const [currentGranularity, setCurrentGranularity] = useState<Granularity>(DEFAULT_GRANULARITY);
   
   // State for time range (for display purposes)
   const [startNs, setStartNs] = useState<string>('');
@@ -31,29 +31,38 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
   // Cache for fetched data to avoid redundant requests
   const dataCache = useRef<Map<string, LineData<Time>[]>>(new Map());
   
-  // Store the last fetch request to prevent duplicate requests
-  const lastFetchRef = useRef<{start: number, end: number, granularity: string | null} | null>(null);
+  // Track if the socket is ready
+  const [wsReady, setWsReady] = useState<boolean>(false);
   
-  // Skip coarser granularity auto-fetch
-  const skipCoarserRef = useRef(false);
+  // Store pending messages to send when socket is ready
+  const pendingMessagesRef = useRef<Array<any>>([]);
   
-  // Connect to WebSocket
-  const connectWebSocket = useCallback((start: number, end: number, gran: string | null) => {
-    if (wsRef.current) {
-      wsRef.current.close();
+  // Pending action to execute once data is received
+  const pendingActionRef = useRef<string | null>(null);
+  
+  // Connect to WebSocket - now it's a persistent connection
+  const connectWebSocket = useCallback(() => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      console.log('WebSocket already connected');
+      return wsRef.current;
     }
 
+    console.log('Creating new WebSocket connection');
     const ws = new WebSocket(`ws://${API_URL.replace('http://', '')}/ws`);
     wsRef.current = ws;
 
     ws.onopen = () => {
       console.log('WebSocket connected');
-      // Send initial request
-      ws.send(JSON.stringify({
-        start_ns: start,
-        end_ns: end,
-        granularity: gran
-      }));
+      setWsReady(true);
+      
+      // Send any pending messages
+      if (pendingMessagesRef.current.length > 0) {
+        console.log('Sending pending messages:', pendingMessagesRef.current.length);
+        pendingMessagesRef.current.forEach(msg => {
+          ws.send(JSON.stringify(msg));
+        });
+        pendingMessagesRef.current = [];
+      }
     };
 
     ws.onmessage = (event) => {
@@ -64,10 +73,21 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
           if (data.length === 0) {
             // Empty chunk signals end of data
             setLoading(false);
+            
+            // Execute pending action if any
+            if (pendingActionRef.current === 'fit') {
+              pendingActionRef.current = null;
+              // We need to wait for the chart to render before fitting
+              setTimeout(() => {
+                if (document.dispatchEvent) {
+                  document.dispatchEvent(new CustomEvent('fit-chart-content'));
+                }
+              }, 50);
+            }
             return;
           }
           
-          // Convert to format expected by lightweight-charts, explicitly casting time to a number
+          // Convert to format expected by lightweight-charts
           const newChartData = data.map((point: any) => ({
             time: Number(point.timestamp_ns) / 1_000_000_000 as Time,
             value: point.value
@@ -82,11 +102,19 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
           setChartData(ringBufferRef.current.toArray());
         } else if (data.granularity) {
           // Update current granularity
-          setCurrentGranularity(data.granularity);
-          
-          // Cache the data
-          const cacheKey = `${start}_${end}_${data.granularity}`;
-          dataCache.current.set(cacheKey, [...ringBufferRef.current.toArray()]);
+          const newGran = GRANULARITIES[data.granularity];
+          if (newGran) {
+            setCurrentGranularity(newGran);
+            
+            // Cache the data with current time range
+            const start = startNs || '0';
+            const end = endNs || '0';
+            const cacheKey = `${start}_${end}_${data.granularity}`;
+            dataCache.current.set(cacheKey, [...ringBufferRef.current.toArray()]);
+          }
+        } else if (data.error) {
+          console.error('Error from server:', data.error);
+          setError(data.error);
         }
       } catch (error) {
         console.error('Error parsing WebSocket message:', error);
@@ -95,125 +123,187 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
 
     ws.onclose = () => {
       console.log('WebSocket disconnected');
+      setWsReady(false);
+      
+      // Try to reconnect after a delay
+      setTimeout(() => {
+        connectWebSocket();
+      }, 3000);
     };
 
     ws.onerror = (error) => {
       console.error('WebSocket error:', error);
       setError('WebSocket connection error');
       setLoading(false);
+      setWsReady(false);
     };
 
     return ws;
-  }, []);
+  }, [startNs, endNs]);
 
-  // Fetch data using HTTP
-  const fetchDataHttp = useCallback(async (startNsValue: number, endNsValue: number, granularity: string) => {
-    // Check if this is a duplicate request
-    if (lastFetchRef.current && 
-        lastFetchRef.current.start === startNsValue && 
-        lastFetchRef.current.end === endNsValue && 
-        lastFetchRef.current.granularity === granularity) {
-      console.log('Skipping duplicate fetch request');
+  // Send message through WebSocket
+  const sendWsMessage = useCallback((message: any) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      console.log('WebSocket not ready, queueing message');
+      pendingMessagesRef.current.push(message);
+      
+      // Try to connect if not already connecting
+      if (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED) {
+        connectWebSocket();
+      }
       return;
     }
     
-    // Store this request
-    lastFetchRef.current = { start: startNsValue, end: endNsValue, granularity: granularity };
-    
+    console.log('Sending WebSocket message:', message);
+    wsRef.current.send(JSON.stringify(message));
+  }, [connectWebSocket]);
+
+  // Load data through WebSocket
+  const loadData = useCallback((startNsValue: number, endNsValue: number, granularity: Granularity) => {
     setLoading(true);
     setError(null);
     
-    console.log(`Fetching data from ${new Date(startNsValue / 1_000_000).toLocaleString()} to ${new Date(endNsValue / 1_000_000).toLocaleString()} with granularity ${granularity || 'raw'}`);
+    console.log(`Loading data from ${new Date(startNsValue / 1_000_000).toLocaleString()} to ${new Date(endNsValue / 1_000_000).toLocaleString()} with granularity ${granularity.symbol}`);
     
-    try {
-      // Check cache first
-      const cacheKey = `${startNsValue}_${endNsValue}_${granularity}`;
-      if (dataCache.current.has(cacheKey)) {
-        console.log('Using cached data');
-        const cachedData = dataCache.current.get(cacheKey) || [];
-        
-        // Clear previous data
-        ringBufferRef.current.clear();
-        
-        // Add cached data to ring buffer
-        cachedData.forEach((point: LineData<Time>) => {
-          ringBufferRef.current.push(point);
-        });
-        
-        setChartData(ringBufferRef.current.toArray());
-        setLoading(false);
-        return;
-      }
+    // Update displayed time range
+    setStartNs(startNsValue.toString());
+    setEndNs(endNsValue.toString());
+    
+    // Check cache first
+    const cacheKey = `${startNsValue}_${endNsValue}_${granularity.symbol}`;
+    if (dataCache.current.has(cacheKey)) {
+      console.log('Using cached data');
+      const cachedData = dataCache.current.get(cacheKey) || [];
       
-      // Build URL
-      const url = new URL(`${API_URL}/data`);
-      url.searchParams.append('start_ns', startNsValue.toString());
-      url.searchParams.append('end_ns', endNsValue.toString());
-      if (granularity) {
-        url.searchParams.append('granularity', granularity);
-      }
+      // Clear previous data
+      ringBufferRef.current.clear();
       
-      const response = await fetch(url.toString());
-      if (!response.ok) {
-        throw new Error('Failed to fetch data');
-      }
+      // Add cached data to ring buffer
+      cachedData.forEach((point: LineData<Time>) => {
+        ringBufferRef.current.push(point);
+      });
       
-      const result = await response.json();
+      setChartData(ringBufferRef.current.toArray());
+      setLoading(false);
+      return;
+    }
+    
+    // Clear the ring buffer for new data
+    ringBufferRef.current.clear();
+    
+    // Send request via WebSocket
+    sendWsMessage({
+      action: 'load',
+      start_ns: startNsValue,
+      end_ns: endNsValue,
+      granularity: granularity.symbol
+    });
+    
+    // Mark that we want to fit content when data is loaded
+    pendingActionRef.current = 'fit';
+  }, [sendWsMessage]);
+
+  // Debounced version of loadData
+  const debouncedLoadData = useCallback(
+    debounce((start: number, end: number, gran: Granularity) => {
+      loadData(start, end, gran);
+    }, 300),
+    [loadData]
+  );
+
+  // Set granularity explicitly
+  const setGranularity = useCallback((granularity: Granularity) => {
+    if (granularity === currentGranularity) return;
+    
+    console.log(`Setting granularity to ${granularity.symbol}`);
+    setLoading(true);
+    
+    // Parse the current time range
+    const startNsValue = startNs ? parseInt(startNs) : 0;
+    const endNsValue = endNs ? parseInt(endNs) : 0;
+    
+    if (startNsValue && endNsValue) {
+      // Send set_granularity via WebSocket
+      sendWsMessage({
+        action: 'set_granularity',
+        symbol: granularity.symbol
+      });
       
-      if (result.error) {
-        setError(result.error);
-        setLoading(false);
-        return;
-      }
-      
-      // Map the raw data to chart data format
-      const chartData = result.data.map((point: any) => ({
-        time: Number(point.timestamp_ns) / 1_000_000_000 as Time,
-        value: point.value
-      }));
-      
-      // Set the chart data with proper type casting
-      setChartData(chartData as LineData<Time>[]);
-      
-      // Perform coverage check using the helper function
-      const coverageRatio = computeCoverage(chartData, startNsValue, endNsValue);
-      if (coverageRatio < 0.8 && !skipCoarserRef.current) {
-        const nextGran = getNextCoarserGranularity(result.granularity);
-        if (nextGran) {
-          console.log(`Coverage only ${(coverageRatio*100).toFixed(1)}%. Trying coarser granularity: ${nextGran}.`);
-          skipCoarserRef.current = true; // avoid infinite loop
-          fetchDataHttp(startNsValue, endNsValue, nextGran);
-          return;
-        }
-      }
-      
-      // Reset the skip flag for next fetch
-      skipCoarserRef.current = false;
-      
-      // Update current granularity
-      setCurrentGranularity(result.granularity);
-      
-      // Cache the data
-      dataCache.current.set(cacheKey, [...chartData]);
-      if (result.granularity !== granularity) {
-        const actualCacheKey = `${startNsValue}_${endNsValue}_${result.granularity}`;
-        dataCache.current.set(actualCacheKey, [...chartData]);
-      }
-    } catch (err) {
-      console.error('Error fetching data:', err);
-      setError('Failed to fetch data');
-    } finally {
+      // We'll update the state when we receive confirmation
+    } else {
+      // No time range set yet, just update the state
+      setCurrentGranularity(granularity);
       setLoading(false);
     }
-  }, [API_URL, dataCache, lastFetchRef, ringBufferRef]);
+  }, [currentGranularity, sendWsMessage, startNs, endNs]);
 
-  // Create a debounced version of fetchDataHttp
-  const debouncedFetchData = useCallback(
-    debounce((start: number, end: number, gran: string) => {
-      fetchDataHttp(start, end, gran);
-    }, 300),
-    [fetchDataHttp]
-  );
+  // Move to coarser granularity
+  const moveUpGran = useCallback(() => {
+    if (!currentGranularity || !currentGranularity.up) {
+      console.log('Already at coarsest granularity');
+      return;
+    }
+    
+    console.log(`Moving up to ${currentGranularity.up.symbol}`);
+    setLoading(true);
+    
+    // Send move_up_gran via WebSocket
+    sendWsMessage({
+      action: 'move_up_gran'
+    });
+    
+    // We'll update the state when we receive confirmation
+  }, [currentGranularity, sendWsMessage]);
+
+  // Move to finer granularity
+  const moveDownGran = useCallback(() => {
+    if (!currentGranularity || !currentGranularity.down) {
+      console.log('Already at finest granularity');
+      return;
+    }
+    
+    console.log(`Moving down to ${currentGranularity.down.symbol}`);
+    setLoading(true);
+    
+    // Send move_down_gran via WebSocket
+    sendWsMessage({
+      action: 'move_down_gran'
+    });
+    
+    // We'll update the state when we receive confirmation
+  }, [currentGranularity, sendWsMessage]);
+
+  // Pan left (backwards in time)
+  const panLeft = useCallback((amountNs: number) => {
+    if (!startNs || !endNs) return;
+    
+    console.log(`Panning left by ${amountNs}ns`);
+    setLoading(true);
+    
+    // Send pan_left via WebSocket
+    sendWsMessage({
+      action: 'pan_left',
+      amount_ns: amountNs
+    });
+    
+    // We'll update state when we receive data
+  }, [sendWsMessage, startNs, endNs]);
+
+  // Pan right (forwards in time)
+  const panRight = useCallback((amountNs: number) => {
+    if (!startNs || !endNs) return;
+    
+    console.log(`Panning right by ${amountNs}ns`);
+    setLoading(true);
+    
+    // Send pan_right via WebSocket
+    sendWsMessage({
+      action: 'pan_right',
+      amount_ns: amountNs
+    });
+    
+    // We'll update state when we receive data
+  }, [sendWsMessage, startNs, endNs]);
 
   // Handle chart visible range change with granularity
   const handleVisibleRangeChangeWithGranularity = useCallback(({ from, to, visibleRangeNs }: { from: number; to: number; visibleRangeNs: number }) => {
@@ -227,54 +317,42 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
     setStartNs(fromNs.toString());
     setEndNs(toNs.toString());
     
-    // Pick appropriate granularity with hysteresis to avoid jitter
-    const newGranularity = pickGranularityWithHysteresis(visibleRangeNs, currentGranularity);
+    // Pick appropriate granularity based on the visible range
+    let newGranularity = currentGranularity;
     
-    console.log(`Visible range changed: ${new Date(fromNs / 1_000_000).toLocaleString()} to ${new Date(toNs / 1_000_000).toLocaleString()}`);
-    console.log(`Visible range in ns: ${visibleRangeNs}, Current granularity: ${currentGranularity}, New granularity: ${newGranularity}`);
-    
-    // Calculate zoom factor by comparing the visible range with the currently loaded data range
-    const chartDataArray = ringBufferRef.current.toArray();
-    let zoomFactor = 1.0;
-    if (chartDataArray.length > 0) {
-      const firstPoint = chartDataArray[0];
-      const lastPoint = chartDataArray[chartDataArray.length - 1];
-      const firstTimeSec = Number(firstPoint.time);
-      const lastTimeSec = Number(lastPoint.time);
-      const firstTimeNs = firstTimeSec * 1_000_000_000;
-      const lastTimeNs = lastTimeSec * 1_000_000_000;
-      const currentDataRange = lastTimeNs - firstTimeNs;
-      const visibleRangeDuration = toNs - fromNs;
-      if (currentDataRange > 0) {
-        zoomFactor = visibleRangeDuration / currentDataRange;
-      }
-      // Compute overflows
-      const leftOverflow = Math.max(0, firstTimeNs - fromNs);
-      const rightOverflow = Math.max(0, toNs - lastTimeNs);
-      const leftOverflowPercent = currentDataRange > 0 ? (leftOverflow / currentDataRange) * 100 : 0;
-      const rightOverflowPercent = currentDataRange > 0 ? (rightOverflow / currentDataRange) * 100 : 0;
-      
-      console.log(`Current data range: ${new Date(firstTimeNs / 1_000_000).toLocaleString()} to ${new Date(lastTimeNs / 1_000_000).toLocaleString()}`);
-      console.log(`Zoom factor: ${zoomFactor.toFixed(2)}`);
-      console.log(`Left overflow: ${leftOverflowPercent.toFixed(2)}%, Right overflow: ${rightOverflowPercent.toFixed(2)}%`);
-      
-      if (zoomFactor === 1.0) {
-        console.log('Chart appears fully loaded; visible range exactly matches loaded data range.');
-      }
+    // Simple granularity selection based on visible range
+    if (visibleRangeNs > 10 * 86400_000_000_000) {  // > 10 days
+      newGranularity = GRANULARITIES['1d'];
+    } else if (visibleRangeNs > 86400_000_000_000) {  // > 1 day
+      newGranularity = GRANULARITIES['1h'];
+    } else if (visibleRangeNs > 3600_000_000_000) {  // > 1 hour
+      newGranularity = GRANULARITIES['1m'];
+    } else if (visibleRangeNs > 60_000_000_000) {  // > 1 minute
+      newGranularity = GRANULARITIES['1s'];
     } else {
-      console.log('No data loaded in chart to calculate zoom factor.');
+      newGranularity = GRANULARITIES['1t'];
     }
-
-    // CASE 1: Granularity changed - always fetch new data
-    if (newGranularity !== currentGranularity) {
-      console.log(`Granularity changed from ${currentGranularity} to ${newGranularity} - fetching new data`);
+    
+    // Apply hysteresis to avoid oscillation
+    const shouldSwitch = 
+      !currentGranularity || 
+      (newGranularity.nsSize > currentGranularity.nsSize && visibleRangeNs > 1.5 * currentGranularity.nsSize * currentGranularity.size) ||
+      (newGranularity.nsSize < currentGranularity.nsSize && visibleRangeNs < 0.75 * currentGranularity.nsSize * currentGranularity.size);
+    
+    if (shouldSwitch && newGranularity !== currentGranularity) {
+      console.log(`Switching granularity from ${currentGranularity?.symbol} to ${newGranularity.symbol} due to visible range`);
+      
+      // Calculate how much to expand beyond the visible range
       const expandedFromNs = Math.floor(fromNs - (toNs - fromNs) * 0.1);
       const expandedToNs = Math.ceil(toNs + (toNs - fromNs) * 0.1);
-      debouncedFetchData(expandedFromNs, expandedToNs, newGranularity);
+      
+      // Load data with new granularity
+      debouncedLoadData(expandedFromNs, expandedToNs, newGranularity);
       return;
     }
-
-    // CASE 2: Check if we've panned or zoomed beyond our current data range
+    
+    // Check if we need to fetch more data due to panning
+    const chartDataArray = ringBufferRef.current.toArray();
     if (chartDataArray.length > 0) {
       const firstPoint = chartDataArray[0];
       const lastPoint = chartDataArray[chartDataArray.length - 1];
@@ -290,23 +368,32 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
       
       console.log(`Left overflow: ${leftOverflowPercent.toFixed(2)}%, Right overflow: ${rightOverflowPercent.toFixed(2)}%`);
       
-      const significantZoomOut = leftOverflowPercent > 20 || rightOverflowPercent > 20;
-      const outsideDataRange = fromNs < firstTimeNs || toNs > lastTimeNs;
+      // If we've panned significantly outside our current data range, fetch more data
+      if (fromNs < firstTimeNs && leftOverflowPercent > 10) {
+        // We've panned too far left, load more data to the left
+        const newStart = Math.floor(fromNs - (toNs - fromNs) * 0.5);
+        const newEnd = lastTimeNs;
+        console.log(`Panned left beyond data boundary, fetching more data from ${new Date(newStart / 1_000_000).toLocaleString()}`);
+        debouncedLoadData(newStart, newEnd, currentGranularity);
+        return;
+      }
       
-      if (significantZoomOut || outsideDataRange || zoomFactor > 1.5) {
-        console.log('Significant zoom out or view outside current data range - fetching new data');
-        const expandedFromNs = Math.floor(fromNs - (toNs - fromNs) * 0.1);
-        const expandedToNs = Math.ceil(toNs + (toNs - fromNs) * 0.1);
-        debouncedFetchData(expandedFromNs, expandedToNs, newGranularity);
+      if (toNs > lastTimeNs && rightOverflowPercent > 10) {
+        // We've panned too far right, load more data to the right
+        const newStart = firstTimeNs;
+        const newEnd = Math.ceil(toNs + (toNs - fromNs) * 0.5);
+        console.log(`Panned right beyond data boundary, fetching more data to ${new Date(newEnd / 1_000_000).toLocaleString()}`);
+        debouncedLoadData(newStart, newEnd, currentGranularity);
         return;
       }
     } else {
-      console.log('No data in chart, fetching initial data');
-      debouncedFetchData(fromNs, toNs, newGranularity);
+      // No data loaded yet, do initial fetch with appropriate granularity
+      console.log('No data loaded yet, doing initial fetch');
+      loadData(fromNs, toNs, newGranularity);
     }
-  }, [dynamicGranularity, currentGranularity, debouncedFetchData]);
+  }, [dynamicGranularity, currentGranularity, debouncedLoadData, loadData]);
 
-  // Update the forceReload function to use logical range for determining the full time range
+  // Force reload with expanded range
   const forceReload = useCallback((visibleRange: { from: number; to: number }, logicalRange?: { from: number; to: number } | null) => {
     if (!visibleRange) return;
     
@@ -359,30 +446,23 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
       expandedEndNs = Math.ceil(lastTimeSec * 1_000_000_000 + currentDataRangeSec * 0.2 * 1_000_000_000);
     }
     
-    // Calculate visible range in nanoseconds for granularity selection
-    const expandedRangeNs = expandedEndNs - expandedStartNs;
+    console.log(`Force reloading data from ${new Date(expandedStartNs / 1_000_000).toLocaleString()} to ${new Date(expandedEndNs / 1_000_000).toLocaleString()} with granularity ${currentGranularity.symbol}`);
     
-    // Calculate appropriate granularity for this range
-    const newGranularity = pickGranularityWithHysteresis(expandedRangeNs, currentGranularity);
-    
-    console.log(`Force reloading data from ${new Date(expandedStartNs / 1_000_000).toLocaleString()} to ${new Date(expandedEndNs / 1_000_000).toLocaleString()} with granularity ${newGranularity}`);
-    
-    // Reset the duplicate request guard
-    lastFetchRef.current = null;
-    
-    // Fetch data with the expanded range and calculated granularity
-    setLoading(true);
-    fetchDataHttp(expandedStartNs, expandedEndNs, newGranularity);
-  }, [currentGranularity, fetchDataHttp]);
+    // Fetch data with the expanded range and current granularity
+    loadData(expandedStartNs, expandedEndNs, currentGranularity);
+  }, [currentGranularity, loadData]);
 
-  // Cleanup WebSocket on unmount
+  // Initialize WebSocket on component mount
   useEffect(() => {
+    const ws = connectWebSocket();
+    
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
+      if (ws) {
+        console.log('Closing WebSocket on unmount');
+        ws.close();
       }
     };
-  }, []);
+  }, [connectWebSocket]);
 
   return {
     chartData,
@@ -391,9 +471,14 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
     currentGranularity,
     startNs,
     endNs,
-    fetchDataHttp,
+    loadData,
     handleVisibleRangeChangeWithGranularity,
     forceReload,
+    setGranularity,
+    moveUpGran,
+    moveDownGran,
+    panLeft,
+    panRight,
     setDynamicGranularity: (value: boolean) => {
       // We're not using a state setter here because this is a controlled option from outside
       options.dynamicGranularity = value;

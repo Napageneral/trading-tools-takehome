@@ -1,16 +1,17 @@
 import React, { forwardRef, MutableRefObject } from 'react';
-import AmChartsStockChart, { AmChartsStockChartHandle } from './AmChartsStockChart';
+import Chart, { ChartHandle } from './Chart';
 import { formatTimestamp } from '../utils/timeUtils';
+import { Granularity } from '../types/Granularity';
 
 interface TimeSeriesDisplayProps {
   data: any[];
   loading: boolean;
   error: string | null;
-  currentGranularity: string | null;
+  currentGranularity: Granularity | null;
   startNs: string;
   endNs: string;
   onVisibleRangeChangeWithGranularity: (params: { from: number; to: number; visibleRangeNs: number }) => void;
-  chartRef: MutableRefObject<AmChartsStockChartHandle | null>;
+  chartRef: MutableRefObject<ChartHandle | null>;
   onForceReload?: () => void;
 }
 
@@ -25,16 +26,6 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
   chartRef,
   onForceReload
 }) => {
-  const renderGranularityText = (gran: string | null) => {
-    switch(gran) {
-      case '1s': return '1 Second';
-      case '1m': return '1 Minute';
-      case '1h': return '1 Hour';
-      case '1d': return '1 Day';
-      default: return 'Raw';
-    }
-  };
-
   return (
     <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md mb-6">
       <div className="flex justify-between items-center mb-4">
@@ -69,7 +60,7 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
       {currentGranularity && (
         <div className="bg-green-50 dark:bg-green-900/30 p-2 rounded-lg mb-4">
           <p className="text-sm">
-            <span className="font-medium">Current Granularity:</span> {renderGranularityText(currentGranularity)}
+            <span className="font-medium">Current Granularity:</span> {currentGranularity.name}
           </p>
         </div>
       )}
@@ -79,11 +70,12 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
           <div className="mb-2 text-sm text-gray-600 dark:text-gray-400">
             <span className="font-medium">Viewing:</span> {formatTimestamp(parseInt(startNs))} to {formatTimestamp(parseInt(endNs))}
           </div>
-          <AmChartsStockChart
+          <Chart
             ref={chartRef}
             data={data}
             onVisibleRangeChangeWithGranularity={onVisibleRangeChangeWithGranularity}
             height={500}
+            currentGranularity={currentGranularity || undefined}
           />
         </div>
       ) : (
@@ -98,7 +90,8 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
               <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto mb-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
-              <p>No data to display. Please wait for data to load.</p>
+              <p className="text-gray-500">No data to display</p>
+              <p className="text-gray-400 text-sm mt-1">Try adjusting the filters or loading a dataset</p>
             </div>
           )}
         </div>

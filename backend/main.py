@@ -7,9 +7,11 @@ from fastapi.responses import StreamingResponse
 import sqlite3
 import json
 import asyncio
+import time
 
 from database import get_db, init_db
 from schemas import DataPoint, DataPointResponse, TimeRangeRequest
+from granularity import GRANULARITIES, DEFAULT_GRANULARITY, Granularity
 
 # Initialize the database
 init_db()
@@ -25,14 +27,6 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
-# Predefined granularities in nanoseconds
-GRANULARITIES_NS = {
-    "1s": 1_000_000_000,
-    "1m": 60_000_000_000,
-    "1h": 3600_000_000_000,
-    "1d": 86400_000_000_000
-}
-
 # Function to pick appropriate granularity based on time range
 def pick_granularity(visible_range_ns: int) -> str:
     """
@@ -42,7 +36,7 @@ def pick_granularity(visible_range_ns: int) -> str:
         visible_range_ns: The visible time range in nanoseconds
         
     Returns:
-        str: The appropriate granularity ('1s', '1m', '1h', or '1d')
+        str: The appropriate granularity symbol ('1t', '1s', '1m', etc.)
     """
     if visible_range_ns > 10 * 86400_000_000_000:  # > 10 days
         return "1d"
@@ -50,8 +44,42 @@ def pick_granularity(visible_range_ns: int) -> str:
         return "1h"
     elif visible_range_ns > 3600_000_000_000:      # > 1 hour
         return "1m"
-    else:
+    elif visible_range_ns > 60_000_000_000:        # > 1 minute
         return "1s"
+    else:
+        return "1t"
+
+# Function to get data with proper downsampling based on granularity
+def get_downsampled_data(conn, start_ns: int, end_ns: int, gran: Granularity):
+    """
+    Get downsampled data based on the granularity
+    
+    Args:
+        conn: Database connection
+        start_ns: Start timestamp in nanoseconds
+        end_ns: End timestamp in nanoseconds
+        gran: Granularity object
+        
+    Returns:
+        list: List of data points
+    """
+    cursor = conn.cursor()
+    
+    # For downsampling, we'll use SQL to group by time buckets
+    gran_ns = gran.ns_size
+    
+    # Using integer division to create buckets
+    cursor.execute("""
+        SELECT (timestamp_ns / ?) * ? as bucket_start, AVG(value) as avg_value
+        FROM data_points
+        WHERE timestamp_ns >= ? AND timestamp_ns <= ?
+        GROUP BY bucket_start
+        ORDER BY bucket_start
+    """, (gran_ns, gran_ns, start_ns, end_ns))
+    
+    # Convert to list of dictionaries
+    result = [{"timestamp_ns": int(row[0]), "value": float(row[1])} for row in cursor.fetchall()]
+    return result
 
 @app.get("/")
 async def root():
@@ -117,7 +145,7 @@ async def upload_data(file: UploadFile = File(...)):
 async def get_data(
     start_ns: int,
     end_ns: int,
-    granularity: Optional[str] = Query(None, description="e.g. '1s','1m','1h','1d'")
+    granularity: Optional[str] = Query(None, description="e.g. '1t','1s','1m','1h','1d','1w','1M','1y'")
 ):
     """
     Fetch data from start_ns to end_ns.
@@ -131,26 +159,13 @@ async def get_data(
     if not granularity:
         granularity = pick_granularity(visible_range_ns)
     
-    if granularity not in GRANULARITIES_NS:
-        raise HTTPException(status_code=400, detail=f"Invalid granularity. Valid options are: {', '.join(GRANULARITIES_NS.keys())}")
+    if granularity not in GRANULARITIES:
+        raise HTTPException(status_code=400, detail=f"Invalid granularity. Valid options are: {', '.join(GRANULARITIES.keys())}")
+    
+    gran = GRANULARITIES[granularity]
     
     with get_db() as conn:
-        cursor = conn.cursor()
-        
-        # For downsampling, we'll use SQL to group by time buckets
-        gran_ns = GRANULARITIES_NS[granularity]
-        
-        # Using integer division to create buckets
-        cursor.execute("""
-            SELECT (timestamp_ns / ?) * ? as bucket_start, AVG(value) as avg_value
-            FROM data_points
-            WHERE timestamp_ns >= ? AND timestamp_ns <= ?
-            GROUP BY bucket_start
-            ORDER BY bucket_start
-        """, (gran_ns, gran_ns, start_ns, end_ns))
-        
-        # Convert to list of dictionaries
-        result = [{"timestamp_ns": int(row[0]), "value": float(row[1])} for row in cursor.fetchall()]
+        result = get_downsampled_data(conn, start_ns, end_ns, gran)
         return {"data": result, "granularity": granularity}
 
 @app.get("/stream")
@@ -185,70 +200,234 @@ async def stream_data(start_ns: int, end_ns: int):
     
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
+# Store active WebSocket connections and their state
+active_connections = {}
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """
     WebSocket endpoint for streaming data.
     Client can request time ranges and receive data in chunks.
+    Also supports actions like pan_left, pan_right, set_granularity, etc.
     """
     await websocket.accept()
+    
+    # Generate a unique connection ID
+    conn_id = id(websocket)
+    
+    # Initialize connection state
+    conn_state = {
+        "granularity": DEFAULT_GRANULARITY,
+        "start_ns": 0,
+        "end_ns": 0,
+        "last_fetch_time": time.time()
+    }
+    
+    # Store the connection
+    active_connections[conn_id] = conn_state
     
     try:
         while True:
             # Wait for a request from the client
             data = await websocket.receive_json()
             
-            # Extract parameters
-            start_ns = data.get("start_ns", 0)
-            end_ns = data.get("end_ns", 0)
-            granularity = data.get("granularity")
+            # Extract the action
+            action = data.get("action", "load")
             
-            # If no granularity provided, pick one based on the time range
-            if not granularity:
-                visible_range_ns = end_ns - start_ns
-                granularity = pick_granularity(visible_range_ns)
-            
-            with get_db() as conn:
-                cursor = conn.cursor()
+            if action == "load":
+                # Extract parameters
+                start_ns = data.get("start_ns", 0)
+                end_ns = data.get("end_ns", 0)
+                granularity_symbol = data.get("granularity")
                 
-                # Handle downsampling if requested
-                if granularity and granularity in GRANULARITIES_NS:
-                    gran_ns = GRANULARITIES_NS[granularity]
+                # Update connection state
+                conn_state["start_ns"] = start_ns
+                conn_state["end_ns"] = end_ns
+                conn_state["last_fetch_time"] = time.time()
+                
+                # If no granularity provided, pick one based on the time range
+                if not granularity_symbol:
+                    visible_range_ns = end_ns - start_ns
+                    granularity_symbol = pick_granularity(visible_range_ns)
+                
+                # Validate granularity
+                if granularity_symbol not in GRANULARITIES:
+                    await websocket.send_json({
+                        "error": f"Invalid granularity. Valid options are: {', '.join(GRANULARITIES.keys())}"
+                    })
+                    continue
+                
+                gran = GRANULARITIES[granularity_symbol]
+                conn_state["granularity"] = gran
+                
+                with get_db() as conn:
+                    # Get downsampled data
+                    results = get_downsampled_data(conn, start_ns, end_ns, gran)
                     
-                    cursor.execute("""
-                        SELECT (timestamp_ns / ?) * ? as bucket_start, AVG(value) as avg_value
-                        FROM data_points
-                        WHERE timestamp_ns >= ? AND timestamp_ns <= ?
-                        GROUP BY bucket_start
-                        ORDER BY bucket_start
-                    """, (gran_ns, gran_ns, start_ns, end_ns))
+                    # Send data in chunks to avoid giant messages
+                    chunk_size = 5000
+                    
+                    for i in range(0, len(results), chunk_size):
+                        chunk = results[i:i+chunk_size]
+                        await websocket.send_json(chunk)
+                    
+                    # Send an empty chunk to signal the end of data
+                    await websocket.send_json([])
+                    
+                    # Send the granularity that was used
+                    await websocket.send_json({"granularity": gran.symbol})
+            
+            elif action == "set_granularity":
+                granularity_symbol = data.get("symbol")
+                
+                # Validate granularity
+                if granularity_symbol not in GRANULARITIES:
+                    await websocket.send_json({
+                        "error": f"Invalid granularity. Valid options are: {', '.join(GRANULARITIES.keys())}"
+                    })
+                    continue
+                
+                gran = GRANULARITIES[granularity_symbol]
+                conn_state["granularity"] = gran
+                
+                # Use existing time range to fetch data with new granularity
+                start_ns = conn_state["start_ns"]
+                end_ns = conn_state["end_ns"]
+                
+                with get_db() as conn:
+                    # Get downsampled data
+                    results = get_downsampled_data(conn, start_ns, end_ns, gran)
+                    
+                    # Send data in chunks to avoid giant messages
+                    chunk_size = 5000
+                    
+                    for i in range(0, len(results), chunk_size):
+                        chunk = results[i:i+chunk_size]
+                        await websocket.send_json(chunk)
+                    
+                    # Send an empty chunk to signal the end of data
+                    await websocket.send_json([])
+                    
+                    # Send the granularity that was used
+                    await websocket.send_json({"granularity": gran.symbol})
+            
+            elif action == "move_up_gran":
+                # Move to coarser granularity if available
+                current_gran = conn_state["granularity"]
+                if current_gran.up:
+                    gran = current_gran.up
+                    conn_state["granularity"] = gran
+                    
+                    # Use existing time range to fetch data with new granularity
+                    start_ns = conn_state["start_ns"]
+                    end_ns = conn_state["end_ns"]
+                    
+                    with get_db() as conn:
+                        # Get downsampled data
+                        results = get_downsampled_data(conn, start_ns, end_ns, gran)
+                        
+                        # Send data in chunks to avoid giant messages
+                        chunk_size = 5000
+                        
+                        for i in range(0, len(results), chunk_size):
+                            chunk = results[i:i+chunk_size]
+                            await websocket.send_json(chunk)
+                        
+                        # Send an empty chunk to signal the end of data
+                        await websocket.send_json([])
+                        
+                        # Send the granularity that was used
+                        await websocket.send_json({"granularity": gran.symbol})
                 else:
-                    # No downsampling, get raw data
-                    cursor.execute(
-                        "SELECT timestamp_ns, value FROM data_points WHERE timestamp_ns >= ? AND timestamp_ns <= ? ORDER BY timestamp_ns",
-                        (start_ns, end_ns)
-                    )
+                    await websocket.send_json({"error": "Already at coarsest granularity"})
+            
+            elif action == "move_down_gran":
+                # Move to finer granularity if available
+                current_gran = conn_state["granularity"]
+                if current_gran.down:
+                    gran = current_gran.down
+                    conn_state["granularity"] = gran
+                    
+                    # Use existing time range to fetch data with new granularity
+                    start_ns = conn_state["start_ns"]
+                    end_ns = conn_state["end_ns"]
+                    
+                    with get_db() as conn:
+                        # Get downsampled data
+                        results = get_downsampled_data(conn, start_ns, end_ns, gran)
+                        
+                        # Send data in chunks to avoid giant messages
+                        chunk_size = 5000
+                        
+                        for i in range(0, len(results), chunk_size):
+                            chunk = results[i:i+chunk_size]
+                            await websocket.send_json(chunk)
+                        
+                        # Send an empty chunk to signal the end of data
+                        await websocket.send_json([])
+                        
+                        # Send the granularity that was used
+                        await websocket.send_json({"granularity": gran.symbol})
+                else:
+                    await websocket.send_json({"error": "Already at finest granularity"})
+            
+            elif action == "pan_left" or action == "pan_right":
+                # Get amount to pan (in nanoseconds)
+                amount_ns = data.get("amount_ns", 0)
+                if amount_ns <= 0:
+                    await websocket.send_json({"error": "Invalid pan amount"})
+                    continue
                 
-                # Send data in chunks to avoid giant messages
-                chunk_size = 5000
-                results = cursor.fetchall()
+                # Calculate new time range
+                start_ns = conn_state["start_ns"]
+                end_ns = conn_state["end_ns"]
                 
-                for i in range(0, len(results), chunk_size):
-                    chunk = results[i:i+chunk_size]
-                    # Convert to list of dictionaries
-                    msg_chunk = [{"timestamp_ns": row[0], "value": row[1]} for row in chunk]
-                    await websocket.send_json(msg_chunk)
+                if action == "pan_left":
+                    # Pan left (backwards in time)
+                    new_start_ns = start_ns - amount_ns
+                    new_end_ns = end_ns - amount_ns
+                else:  # pan_right
+                    # Pan right (forwards in time)
+                    new_start_ns = start_ns + amount_ns
+                    new_end_ns = end_ns + amount_ns
                 
-                # Send an empty chunk to signal the end of data
-                await websocket.send_json([])
+                # Update connection state
+                conn_state["start_ns"] = new_start_ns
+                conn_state["end_ns"] = new_end_ns
+                conn_state["last_fetch_time"] = time.time()
                 
-                # Send the granularity that was used
-                await websocket.send_json({"granularity": granularity})
+                gran = conn_state["granularity"]
+                
+                with get_db() as conn:
+                    # Get downsampled data
+                    results = get_downsampled_data(conn, new_start_ns, new_end_ns, gran)
+                    
+                    # Send data in chunks to avoid giant messages
+                    chunk_size = 5000
+                    
+                    for i in range(0, len(results), chunk_size):
+                        chunk = results[i:i+chunk_size]
+                        await websocket.send_json(chunk)
+                    
+                    # Send an empty chunk to signal the end of data
+                    await websocket.send_json([])
+                    
+                    # Send the granularity that was used
+                    await websocket.send_json({"granularity": gran.symbol})
+            
+            else:
+                await websocket.send_json({"error": f"Unknown action: {action}"})
     
     except WebSocketDisconnect:
-        print("WebSocket disconnected")
+        print(f"WebSocket disconnected: {conn_id}")
+        # Clean up connection state
+        if conn_id in active_connections:
+            del active_connections[conn_id]
     except Exception as e:
         print(f"WebSocket error: {e}")
+        # Clean up connection state
+        if conn_id in active_connections:
+            del active_connections[conn_id]
 
 @app.get("/stats")
 async def get_stats():
