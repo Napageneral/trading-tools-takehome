@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@amcharts/amcharts5": "^5.7.6",
     "@types/lodash": "^4.17.15",
     "ag-grid-community": "^31.0.1",
     "ag-grid-react": "^31.0.1",

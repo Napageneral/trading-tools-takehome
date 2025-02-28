@@ -11,6 +11,7 @@ interface TimeSeriesChartProps {
 
 export interface TimeSeriesChartHandle {
   fitContent: () => void;
+  resetFitContent: () => void;
   getVisibleRange: () => { from: number; to: number } | null;
   getVisibleLogicalRange: () => { from: number; to: number } | null;
 }
@@ -29,14 +30,15 @@ const TimeSeriesChart = forwardRef<TimeSeriesChartHandle, TimeSeriesChartProps>(
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const lastVisibleRangeRef = useRef<{ from: number; to: number } | null>(null);
+  const shouldFitOnNextLoadRef = useRef(true);
 
   // Expose methods to parent component
   useImperativeHandle(ref, () => ({
     fitContent: () => {
-      if (chartRef.current) {
+      if (chartRef.current && shouldFitOnNextLoadRef.current) {
         chartRef.current.timeScale().fitContent();
-        
-        // After fitting content, trigger a visible range change event to update granularity
+        shouldFitOnNextLoadRef.current = false;
+
         const visibleRange = chartRef.current.timeScale().getVisibleRange();
         if (visibleRange && onVisibleRangeChangeWithGranularity) {
           const from = Number(visibleRange.from);
@@ -45,6 +47,9 @@ const TimeSeriesChart = forwardRef<TimeSeriesChartHandle, TimeSeriesChartProps>(
           onVisibleRangeChangeWithGranularity({ from, to, visibleRangeNs });
         }
       }
+    },
+    resetFitContent: () => {
+      shouldFitOnNextLoadRef.current = true;
     },
     getVisibleRange: () => {
       if (chartRef.current) {

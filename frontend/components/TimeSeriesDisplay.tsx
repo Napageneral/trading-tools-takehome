@@ -1,17 +1,16 @@
 import React, { forwardRef, MutableRefObject } from 'react';
-import TimeSeriesChart, { TimeSeriesChartHandle } from './TimeSeriesChart';
-import { LineData } from 'lightweight-charts';
+import AmChartsStockChart, { AmChartsStockChartHandle } from './AmChartsStockChart';
 import { formatTimestamp } from '../utils/timeUtils';
 
 interface TimeSeriesDisplayProps {
-  data: LineData[];
+  data: any[];
   loading: boolean;
   error: string | null;
   currentGranularity: string | null;
   startNs: string;
   endNs: string;
   onVisibleRangeChangeWithGranularity: (params: { from: number; to: number; visibleRangeNs: number }) => void;
-  chartRef: MutableRefObject<TimeSeriesChartHandle | null>;
+  chartRef: MutableRefObject<AmChartsStockChartHandle | null>;
   onForceReload?: () => void;
 }
 
@@ -80,7 +79,7 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
           <div className="mb-2 text-sm text-gray-600 dark:text-gray-400">
             <span className="font-medium">Viewing:</span> {formatTimestamp(parseInt(startNs))} to {formatTimestamp(parseInt(endNs))}
           </div>
-          <TimeSeriesChart
+          <AmChartsStockChart
             ref={chartRef}
             data={data}
             onVisibleRangeChangeWithGranularity={onVisibleRangeChangeWithGranularity}

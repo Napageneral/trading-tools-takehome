@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { TimeSeriesChartHandle } from '@/components/TimeSeriesChart';
+import { AmChartsStockChartHandle } from '@/components/AmChartsStockChart';
 import DataStats from '@/components/DataStats';
 import TimeSeriesControls from '@/components/TimeSeriesControls';
 import TimeSeriesDisplay from '@/components/TimeSeriesDisplay';
@@ -19,7 +19,7 @@ export default function Home() {
   const [dynamicGranularity, setDynamicGranularity] = useState<boolean>(true);
   
   // Reference to the chart component
-  const chartRef = useRef<TimeSeriesChartHandle>(null);
+  const chartRef = useRef<AmChartsStockChartHandle>(null);
   
   // Use the time series data hook
   const {
