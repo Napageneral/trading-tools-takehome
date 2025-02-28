@@ -33,6 +33,26 @@ GRANULARITIES_NS = {
     "1d": 86400_000_000_000
 }
 
+# Function to pick appropriate granularity based on time range
+def pick_granularity(visible_range_ns: int) -> str:
+    """
+    Determine the appropriate granularity based on the visible time range.
+    
+    Args:
+        visible_range_ns: The visible time range in nanoseconds
+        
+    Returns:
+        str: The appropriate granularity ('1s', '1m', '1h', or '1d')
+    """
+    if visible_range_ns > 10 * 86400_000_000_000:  # > 10 days
+        return "1d"
+    elif visible_range_ns > 86400_000_000_000:     # > 1 day
+        return "1h"
+    elif visible_range_ns > 3600_000_000_000:      # > 1 hour
+        return "1m"
+    else:
+        return "1s"
+
 @app.get("/")
 async def root():
     """Root endpoint to check if the API is running."""
@@ -102,23 +122,20 @@ async def get_data(
     """
     Fetch data from start_ns to end_ns.
     If a granularity is provided, downsample the data to that interval.
+    If no granularity is provided, one will be automatically selected based on the time range.
     """
-    if granularity and granularity not in GRANULARITIES_NS:
+    # Calculate the visible range
+    visible_range_ns = end_ns - start_ns
+    
+    # If no granularity provided, pick one based on the time range
+    if not granularity:
+        granularity = pick_granularity(visible_range_ns)
+    
+    if granularity not in GRANULARITIES_NS:
         raise HTTPException(status_code=400, detail=f"Invalid granularity. Valid options are: {', '.join(GRANULARITIES_NS.keys())}")
     
     with get_db() as conn:
         cursor = conn.cursor()
-        
-        # If no downsampling needed, return raw data
-        if not granularity:
-            cursor.execute(
-                "SELECT timestamp_ns, value FROM data_points WHERE timestamp_ns >= ? AND timestamp_ns <= ? ORDER BY timestamp_ns",
-                (start_ns, end_ns)
-            )
-            
-            # Convert to list of dictionaries
-            result = [{"timestamp_ns": row[0], "value": row[1]} for row in cursor.fetchall()]
-            return {"data": result}
         
         # For downsampling, we'll use SQL to group by time buckets
         gran_ns = GRANULARITIES_NS[granularity]
@@ -133,8 +150,8 @@ async def get_data(
         """, (gran_ns, gran_ns, start_ns, end_ns))
         
         # Convert to list of dictionaries
-        result = [{"timestamp_ns": int(row[0]), "value": int(row[1])} for row in cursor.fetchall()]
-        return {"data": result}
+        result = [{"timestamp_ns": int(row[0]), "value": float(row[1])} for row in cursor.fetchall()]
+        return {"data": result, "granularity": granularity}
 
 @app.get("/stream")
 async def stream_data(start_ns: int, end_ns: int):
@@ -186,6 +203,11 @@ async def websocket_endpoint(websocket: WebSocket):
             end_ns = data.get("end_ns", 0)
             granularity = data.get("granularity")
             
+            # If no granularity provided, pick one based on the time range
+            if not granularity:
+                visible_range_ns = end_ns - start_ns
+                granularity = pick_granularity(visible_range_ns)
+            
             with get_db() as conn:
                 cursor = conn.cursor()
                 
@@ -219,6 +241,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 
                 # Send an empty chunk to signal the end of data
                 await websocket.send_json([])
+                
+                # Send the granularity that was used
+                await websocket.send_json({"granularity": granularity})
     
     except WebSocketDisconnect:
         print("WebSocket disconnected")
