@@ -25,6 +25,7 @@ export interface ChartHandle {
   resetFitContent: () => void;
   getVisibleRange: () => { from: number; to: number } | null;
   getVisibleLogicalRange: () => { from: number; to: number } | null;
+  getVisibleTickCount: () => number;
 }
 
 const Chart = forwardRef<ChartHandle, ChartProps>(({
@@ -48,6 +49,7 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
   const lastVisibleRangeRef = useRef<{ from: number; to: number } | null>(null);
   const currentGranularityRef = useRef<Granularity | null>(null);
   const intervalSwitcherRef = useRef<am5stock.IntervalControl | null>(null);
+  const visibleTickCountRef = useRef<number>(0);
 
   // Update current granularity ref when prop changes
   useEffect(() => {
@@ -97,6 +99,7 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
         if (xAxis) {
           const min = xAxis.get("start") || 0;
           const max = xAxis.get("end") || 1;
+          
           return {
             from: min,
             to: max
@@ -104,6 +107,23 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
         }
       }
       return null;
+    },
+    getVisibleTickCount: () => {
+      // Get the current visible range
+      const visibleRange = mainPanelRef.current?.xAxes.getIndex(0)?.getPrivate("selectionMin") && 
+                           mainPanelRef.current?.xAxes.getIndex(0)?.getPrivate("selectionMax") ? 
+        {
+          from: (mainPanelRef.current?.xAxes.getIndex(0)?.getPrivate("selectionMin") as number) / 1000,
+          to: (mainPanelRef.current?.xAxes.getIndex(0)?.getPrivate("selectionMax") as number) / 1000
+        } : null;
+      
+      // If we have a visible range, calculate and return the tick count
+      if (visibleRange) {
+        return calculateVisibleTickCount(visibleRange.from, visibleRange.to);
+      }
+      
+      // Otherwise return the current stored value
+      return visibleTickCountRef.current;
     }
   }));
 
@@ -498,8 +518,13 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
     // Set initial interval if we have a current granularity
     if (currentGranularity) {
       // Find the matching interval item
-      const matchingItem = intervalItems.find(item => item.id === currentGranularity.symbol);
-      if (matchingItem) {
+      const matchingItem = intervalItems.find(item => {
+        if (typeof item === 'string') {
+          return false; // Skip string items
+        }
+        return item.id === currentGranularity.symbol;
+      });
+      if (matchingItem && typeof matchingItem !== 'string') {
         // Set the interval
         dateAxis.set("baseInterval", matchingItem.interval);
         sbDateAxis.set("baseInterval", matchingItem.interval);
@@ -507,8 +532,14 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
     }
 
     intervalSwitcher.events.on("selected", function(ev) {
-      // Get selected granularity
-      const selectedGran = (ev.item as any).granularity;
+      // Get selected granularity with proper type assertion
+      const item = ev.item as {
+        interval: { timeUnit: string; count: number };
+        granularity: Granularity;
+        id: string;
+      };
+      
+      const selectedGran = item.granularity;
       currentGranularityRef.current = selectedGran;
 
       // Set up zoomout
@@ -519,12 +550,12 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
       }
       
       // Set `baseInterval` on the DateAxis
-      dateAxis.set("baseInterval", (ev.item as any).interval);
-      sbDateAxis.set("baseInterval", (ev.item as any).interval);
+      dateAxis.set("baseInterval", item.interval);
+      sbDateAxis.set("baseInterval", item.interval);
       
       stockChart.indicators.each(function(indicator){
         if (indicator instanceof am5stock.ChartIndicator) {
-          indicator.xAxis.set("baseInterval", (ev.item as any).interval);
+          indicator.xAxis.set("baseInterval", item.interval);
         }
       });
       
@@ -623,9 +654,13 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
     if (onVisibleRangeChangeWithGranularity) {
       // Using a type assertion to bypass type checking for this event name
       (dateAxis.events as any).on("selectionextremeschanged", () => {
+        console.log("selectionextremeschanged event fired");
+        
         if (dateAxis.getPrivate("selectionMin") && dateAxis.getPrivate("selectionMax")) {
           const from = dateAxis.getPrivate("selectionMin") as number / 1000;
           const to = dateAxis.getPrivate("selectionMax") as number / 1000;
+          
+          console.log(`New viewport range: from=${from}, to=${to}`);
           
           // Only trigger if the range has changed significantly
           if (!lastVisibleRangeRef.current || 
@@ -633,11 +668,69 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
               Math.abs(to - (lastVisibleRangeRef.current.to || 0)) > 0.01) {
             
             const visibleRangeNs = Math.floor((to - from) * 1_000_000_000);
-            onVisibleRangeChangeWithGranularity({ from, to, visibleRangeNs });
+            
+            // Calculate and update visible tick count
+            const tickCount = calculateVisibleTickCount(from, to);
+            console.log(`Updated visible tick count: ${tickCount}`);
+            
+            if (onVisibleRangeChangeWithGranularity) {
+              onVisibleRangeChangeWithGranularity({ from, to, visibleRangeNs });
+            }
             
             // Update last visible range
             lastVisibleRangeRef.current = { from, to };
+          } else {
+            console.log("Range change too small, not triggering update");
           }
+        } else {
+          console.log("Selection min/max not available");
+        }
+      });
+      
+      // Also listen for zoom end events as an alternative trigger
+      (dateAxis.events as any).on("xaxiszoomended", () => {
+        console.log("xaxiszoomended event fired");
+        
+        if (dateAxis.getPrivate("selectionMin") && dateAxis.getPrivate("selectionMax")) {
+          const from = dateAxis.getPrivate("selectionMin") as number / 1000;
+          const to = dateAxis.getPrivate("selectionMax") as number / 1000;
+          
+          console.log(`Zoom ended range: from=${from}, to=${to}`);
+          
+          // Calculate and update visible tick count
+          const tickCount = calculateVisibleTickCount(from, to);
+          console.log(`After zoom tick count: ${tickCount}`);
+        }
+      });
+      
+      // Add scrollbar range changed event listener
+      const scrollbarX = mainPanel.get("scrollbarX") as am5xy.XYChartScrollbar;
+      scrollbarX.events.on("rangechanged", (e) => {
+        console.log("Scrollbar range changed:", e.start, e.end, e.grip);
+        
+        // The scrollbar's range is normalized from 0-1
+        // We need to convert this to the actual time range
+        if (dateAxis.getPrivate("min") !== undefined && dateAxis.getPrivate("max") !== undefined) {
+          const axisMin = dateAxis.getPrivate("min") as number;
+          const axisMax = dateAxis.getPrivate("max") as number;
+          const axisRange = axisMax - axisMin;
+          
+          // Convert normalized range (0-1) to actual time range
+          const fromMs = axisMin + axisRange * e.start;
+          const toMs = axisMin + axisRange * e.end;
+          
+          // Convert from milliseconds to seconds
+          const from = fromMs / 1000;
+          const to = toMs / 1000;
+          
+          console.log(`Scrollbar converted range: from=${from}, to=${to}`);
+          
+          // Calculate visible tick count based on this range
+          const tickCount = calculateVisibleTickCount(from, to);
+          console.log(`Scrollbar rangechanged tick count: ${tickCount}`);
+          
+          // Update the visible range reference
+          lastVisibleRangeRef.current = { from, to };
         }
       });
     }
@@ -758,6 +851,47 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
       }
     }
   }, [currentGranularity]);
+
+  // Add this function to calculate visible tick count
+  const calculateVisibleTickCount = (from: number, to: number) => {
+    if (!data || data.length === 0) return 0;
+    
+    // Count data points within the visible range
+    let count = 0;
+    console.log(`Calculating visible tick count from=${from}, to=${to}, total data points=${data.length}`);
+    
+    if (data.length > 0) {
+      // Log a sample data point to understand format
+      const firstPoint = data[0];
+      console.log('First data point:', firstPoint);
+      
+      // Get time from the first point to understand the format
+      const firstTime = typeof firstPoint.time === 'number' ? firstPoint.time : Number(firstPoint.time);
+      console.log(`First data point time (raw): ${firstTime}, typeof=${typeof firstPoint.time}`);
+      console.log(`First data point time (ISO): ${new Date(firstTime * 1000).toISOString()}`);
+    }
+    
+    // Report time range boundaries
+    console.log(`Looking for data points between times: ${from} and ${to}`);
+    console.log(`As dates: ${new Date(from * 1000).toISOString()} to ${new Date(to * 1000).toISOString()}`);
+    
+    // Direct comparison with the range bounds
+    for (const point of data) {
+      // Extract the time value from the data point (should be in seconds)
+      const pointTime = typeof point.time === 'number' ? point.time : Number(point.time);
+      
+      // Simple range check - point is in range if its time is between from and to
+      if (pointTime >= from && pointTime <= to) {
+        count++;
+      }
+    }
+    
+    console.log(`Found ${count} visible data points in range`);
+    
+    // Update the ref
+    visibleTickCountRef.current = count;
+    return count;
+  };
 
   return (
     <div>

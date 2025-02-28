@@ -1,4 +1,4 @@
-import React, { forwardRef, MutableRefObject } from 'react';
+import React, { useState, useEffect, MutableRefObject } from 'react';
 import Chart, { ChartHandle } from './Chart';
 import { formatTimestamp } from '../utils/timeUtils';
 import { Granularity } from '../types/Granularity';
@@ -26,6 +26,33 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
   chartRef,
   onForceReload
 }) => {
+  // Add state for visible tick count
+  const [visibleTickCount, setVisibleTickCount] = useState<number>(0);
+
+  // Effect to update visible tick count
+  useEffect(() => {
+    // Check if chart ref is available
+    if (chartRef.current) {
+      // Set initial tick count
+      const initialCount = chartRef.current.getVisibleTickCount();
+      setVisibleTickCount(initialCount);
+      console.log('Initial visible tick count:', initialCount);
+      
+      // Set up interval to periodically update the tick count
+      const intervalId = setInterval(() => {
+        if (chartRef.current) {
+          const count = chartRef.current.getVisibleTickCount();
+          if (count !== visibleTickCount) {
+            console.log('Visible tick count updated:', count);
+            setVisibleTickCount(count);
+          }
+        }
+      }, 1000); // Update every second
+      
+      return () => clearInterval(intervalId);
+    }
+  }, [chartRef, visibleTickCount]);
+
   return (
     <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md mb-6">
       <div className="flex justify-between items-center mb-4">
@@ -56,14 +83,24 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
         </div>
       )}
       
-      {/* Current granularity display */}
-      {currentGranularity && (
-        <div className="bg-green-50 dark:bg-green-900/30 p-2 rounded-lg mb-4">
+      {/* Chart information display */}
+      <div className="flex flex-wrap gap-4 mb-4">
+        {/* Current granularity display */}
+        {currentGranularity && (
+          <div className="bg-green-50 dark:bg-green-900/30 p-2 rounded-lg">
+            <p className="text-sm">
+              <span className="font-medium">Current Granularity:</span> {currentGranularity.name}
+            </p>
+          </div>
+        )}
+        
+        {/* Visible tick count display */}
+        <div className="bg-blue-50 dark:bg-blue-900/30 p-2 rounded-lg">
           <p className="text-sm">
-            <span className="font-medium">Current Granularity:</span> {currentGranularity.name}
+            <span className="font-medium">Visible Data Points:</span> {visibleTickCount}
           </p>
         </div>
-      )}
+      </div>
       
       {data.length > 0 ? (
         <div>
