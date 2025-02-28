@@ -317,8 +317,65 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
     setStartNs(fromNs.toString());
     setEndNs(toNs.toString());
     
-    // Pick appropriate granularity based on the visible range
+    // Get the current visible tick count from the chart data
+    const chartDataArray = ringBufferRef.current.toArray();
+    
+    // Count data points within the visible range
+    const visiblePoints = chartDataArray.filter(point => {
+      const pointTimeSec = typeof point.time === 'number' ? point.time : Number(point.time);
+      return pointTimeSec >= from && pointTimeSec <= to;
+    });
+    
+    const visibleTickCount = visiblePoints.length;
+    console.log(`Visible data points in viewport: ${visibleTickCount}`);
+    
+    // Track the last time we changed granularity to add hysteresis
+    const lastGranChangeTimeRef = useRef<number>(0);
+    const GRANULARITY_CHANGE_COOLDOWN_MS = 1000; // 1 second cooldown
+    const now = Date.now();
+    
+    // Function to check if we should change granularity based on tick count
+    const maybeSwitchGranByTickCount = () => {
+      // Only change if we're not in cooldown period
+      if (now - lastGranChangeTimeRef.current < GRANULARITY_CHANGE_COOLDOWN_MS) {
+        console.log('Still in granularity change cooldown period, skipping check');
+        return false;
+      }
+      
+      // Check if we have too few visible points and should move to finer granularity
+      if (currentGranularity && 
+          visibleTickCount < currentGranularity.minVal && 
+          currentGranularity.down) {
+        console.log(`Only ${visibleTickCount} points visible. Minimum desired is ${currentGranularity.minVal}. Moving to finer granularity: ${currentGranularity.down.symbol}`);
+        
+        // Add additional safety check - only move down if we're not at the bottom already
+        if (currentGranularity.down.symbol !== '1t') {
+          moveDownGran();
+          lastGranChangeTimeRef.current = now;
+          return true;
+        }
+      }
+      // Check if we have too many visible points and should move to coarser granularity
+      else if (currentGranularity && 
+              visibleTickCount > currentGranularity.maxVal && 
+              currentGranularity.up) {
+        console.log(`Too many points: ${visibleTickCount}. Maximum desired is ${currentGranularity.maxVal}. Moving to coarser granularity: ${currentGranularity.up.symbol}`);
+        
+        // Add additional safety check - only move up if we're not at the top already
+        if (currentGranularity.up.symbol !== '1y') {
+          moveUpGran();
+          lastGranChangeTimeRef.current = now;
+          return true;
+        }
+      }
+      
+      return false;
+    };
+    
+    // First approach: pick granularity based on visible range (current logic)
+    // This serves as a coarse adjustment based on time range
     let newGranularity = currentGranularity;
+    let shouldSwitchByRange = false;
     
     // Simple granularity selection based on visible range
     if (visibleRangeNs > 10 * 86400_000_000_000) {  // > 10 days
@@ -333,13 +390,13 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
       newGranularity = GRANULARITIES['1t'];
     }
     
-    // Apply hysteresis to avoid oscillation
-    const shouldSwitch = 
+    // Apply hysteresis to avoid oscillation when changing by time range
+    shouldSwitchByRange = 
       !currentGranularity || 
       (newGranularity.nsSize > currentGranularity.nsSize && visibleRangeNs > 1.5 * currentGranularity.nsSize * currentGranularity.size) ||
       (newGranularity.nsSize < currentGranularity.nsSize && visibleRangeNs < 0.75 * currentGranularity.nsSize * currentGranularity.size);
     
-    if (shouldSwitch && newGranularity !== currentGranularity) {
+    if (shouldSwitchByRange && newGranularity !== currentGranularity) {
       console.log(`Switching granularity from ${currentGranularity?.symbol} to ${newGranularity.symbol} due to visible range`);
       
       // Calculate how much to expand beyond the visible range
@@ -348,9 +405,26 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
       
       // Load data with new granularity
       debouncedLoadData(expandedFromNs, expandedToNs, newGranularity);
+      
+      // Update last granularity change time
+      lastGranChangeTimeRef.current = now;
       return;
     }
     
+    // Second approach: fine-tune granularity based on tick count if range-based approach didn't change it
+    if (!shouldSwitchByRange) {
+      // Try to switch granularity based on tick count
+      const didSwitchByTickCount = maybeSwitchGranByTickCount();
+      
+      // If we didn't switch by tick count, check if we need to fetch more data due to panning
+      if (!didSwitchByTickCount) {
+        checkDataBoundariesAndFetch(from, to);
+      }
+    }
+  }, [dynamicGranularity, currentGranularity, debouncedLoadData, moveDownGran, moveUpGran]);
+
+  // Extract the boundary checking into a separate function for clarity
+  const checkDataBoundariesAndFetch = useCallback((from: number, to: number) => {
     // Check if we need to fetch more data due to panning
     const chartDataArray = ringBufferRef.current.toArray();
     if (chartDataArray.length > 0) {
@@ -360,8 +434,8 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
       const lastTimeSec = Number(lastPoint.time);
       const firstTimeNs = firstTimeSec * 1_000_000_000;
       const lastTimeNs = lastTimeSec * 1_000_000_000;
-      const leftOverflow = Math.max(0, firstTimeNs - fromNs);
-      const rightOverflow = Math.max(0, toNs - lastTimeNs);
+      const leftOverflow = Math.max(0, firstTimeNs - from * 1_000_000_000);
+      const rightOverflow = Math.max(0, to * 1_000_000_000 - lastTimeNs);
       const currentRange = lastTimeNs - firstTimeNs;
       const leftOverflowPercent = currentRange > 0 ? (leftOverflow / currentRange) * 100 : 0;
       const rightOverflowPercent = currentRange > 0 ? (rightOverflow / currentRange) * 100 : 0;
@@ -369,29 +443,29 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
       console.log(`Left overflow: ${leftOverflowPercent.toFixed(2)}%, Right overflow: ${rightOverflowPercent.toFixed(2)}%`);
       
       // If we've panned significantly outside our current data range, fetch more data
-      if (fromNs < firstTimeNs && leftOverflowPercent > 10) {
+      if (from * 1_000_000_000 < firstTimeNs && leftOverflowPercent > 10) {
         // We've panned too far left, load more data to the left
-        const newStart = Math.floor(fromNs - (toNs - fromNs) * 0.5);
+        const newStart = Math.floor(from * 1_000_000_000 - (to - from) * 1_000_000_000 * 0.5);
         const newEnd = lastTimeNs;
         console.log(`Panned left beyond data boundary, fetching more data from ${new Date(newStart / 1_000_000).toLocaleString()}`);
-        debouncedLoadData(newStart, newEnd, currentGranularity);
+        debouncedLoadData(newStart, newEnd, currentGranularity!);
         return;
       }
       
-      if (toNs > lastTimeNs && rightOverflowPercent > 10) {
+      if (to * 1_000_000_000 > lastTimeNs && rightOverflowPercent > 10) {
         // We've panned too far right, load more data to the right
         const newStart = firstTimeNs;
-        const newEnd = Math.ceil(toNs + (toNs - fromNs) * 0.5);
+        const newEnd = Math.ceil(to * 1_000_000_000 + (to - from) * 1_000_000_000 * 0.5);
         console.log(`Panned right beyond data boundary, fetching more data to ${new Date(newEnd / 1_000_000).toLocaleString()}`);
-        debouncedLoadData(newStart, newEnd, currentGranularity);
+        debouncedLoadData(newStart, newEnd, currentGranularity!);
         return;
       }
     } else {
       // No data loaded yet, do initial fetch with appropriate granularity
       console.log('No data loaded yet, doing initial fetch');
-      loadData(fromNs, toNs, newGranularity);
+      loadData(from * 1_000_000_000, to * 1_000_000_000, currentGranularity || DEFAULT_GRANULARITY);
     }
-  }, [dynamicGranularity, currentGranularity, debouncedLoadData, loadData]);
+  }, [debouncedLoadData, loadData, currentGranularity]);
 
   // Force reload with expanded range
   const forceReload = useCallback((visibleRange: { from: number; to: number }, logicalRange?: { from: number; to: number } | null) => {

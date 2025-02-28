@@ -602,54 +602,6 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
       ]
     });
 
-    // Add buttons to navigate granularity chain
-    const buttonsContainer = am5.Container.new(root, {
-      layout: root.horizontalLayout,
-      x: am5.p50,
-      centerX: am5.p50,
-      y: am5.p100,
-      centerY: am5.p100,
-      marginBottom: 10
-    });
-    
-    stockChart.children.push(buttonsContainer);
-    
-    const moveUpButton = am5.Button.new(root, {
-      paddingTop: 3,
-      paddingBottom: 3,
-      paddingLeft: 5,
-      paddingRight: 5,
-      marginRight: 5,
-      label: am5.Label.new(root, {
-        text: "⬆️ Coarser"
-      })
-    });
-    
-    const moveDownButton = am5.Button.new(root, {
-      paddingTop: 3,
-      paddingBottom: 3,
-      paddingLeft: 5,
-      paddingRight: 5,
-      label: am5.Label.new(root, {
-        text: "⬇️ Finer"
-      })
-    });
-    
-    buttonsContainer.children.push(moveUpButton);
-    buttonsContainer.children.push(moveDownButton);
-    
-    moveUpButton.events.on("click", function() {
-      if (onMoveUpGran) {
-        onMoveUpGran();
-      }
-    });
-    
-    moveDownButton.events.on("click", function() {
-      if (onMoveDownGran) {
-        onMoveDownGran();
-      }
-    });
-
     // Handle range changes
     if (onVisibleRangeChangeWithGranularity) {
       // Using a type assertion to bypass type checking for this event name
@@ -672,6 +624,9 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
             // Calculate and update visible tick count
             const tickCount = calculateVisibleTickCount(from, to);
             console.log(`Updated visible tick count: ${tickCount}`);
+            
+            // Dispatch a custom event to notify that the chart range has changed
+            document.dispatchEvent(new CustomEvent('chartRangeChanged'));
             
             if (onVisibleRangeChangeWithGranularity) {
               onVisibleRangeChangeWithGranularity({ from, to, visibleRangeNs });
@@ -700,6 +655,9 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
           // Calculate and update visible tick count
           const tickCount = calculateVisibleTickCount(from, to);
           console.log(`After zoom tick count: ${tickCount}`);
+          
+          // Dispatch a custom event to notify that the chart range has changed
+          document.dispatchEvent(new CustomEvent('chartRangeChanged'));
         }
       });
       
@@ -728,6 +686,9 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
           // Calculate visible tick count based on this range
           const tickCount = calculateVisibleTickCount(from, to);
           console.log(`Scrollbar rangechanged tick count: ${tickCount}`);
+          
+          // Dispatch a custom event to notify that the chart range has changed
+          document.dispatchEvent(new CustomEvent('chartRangeChanged'));
           
           // Update the visible range reference
           lastVisibleRangeRef.current = { from, to };
@@ -762,6 +723,11 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
       }
       
       loadData(seriesToLoad, chartData);
+      
+      // Dispatch event to update tick count after data is loaded
+      setTimeout(() => {
+        document.dispatchEvent(new CustomEvent('chartRangeChanged'));
+      }, 500);
     }
 
     // Handle resize
@@ -779,7 +745,7 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
         rootRef.current.dispose();
       }
     };
-  }, [onVisibleRangeChangeWithGranularity, onGranularityChange, onMoveUpGran, onMoveDownGran, currentGranularity]);
+  }, [onVisibleRangeChangeWithGranularity, onGranularityChange, currentGranularity]);
 
   // Update data when it changes
   useEffect(() => {
@@ -835,6 +801,11 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
         mainPanelRef.current.zoomOut();
         shouldFitOnNextLoadRef.current = false;
       }
+      
+      // Dispatch event to update tick count after data is loaded
+      setTimeout(() => {
+        document.dispatchEvent(new CustomEvent('chartRangeChanged'));
+      }, 500);
     }
   }, [data]);
 

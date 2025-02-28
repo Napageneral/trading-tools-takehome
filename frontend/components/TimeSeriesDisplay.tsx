@@ -1,6 +1,5 @@
 import React, { useState, useEffect, MutableRefObject } from 'react';
 import Chart, { ChartHandle } from './Chart';
-import { formatTimestamp } from '../utils/timeUtils';
 import { Granularity } from '../types/Granularity';
 
 interface TimeSeriesDisplayProps {
@@ -12,7 +11,6 @@ interface TimeSeriesDisplayProps {
   endNs: string;
   onVisibleRangeChangeWithGranularity: (params: { from: number; to: number; visibleRangeNs: number }) => void;
   chartRef: MutableRefObject<ChartHandle | null>;
-  onForceReload?: () => void;
 }
 
 const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
@@ -23,50 +21,52 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
   startNs,
   endNs,
   onVisibleRangeChangeWithGranularity,
-  chartRef,
-  onForceReload
+  chartRef
 }) => {
   // Add state for visible tick count
   const [visibleTickCount, setVisibleTickCount] = useState<number>(0);
 
-  // Effect to update visible tick count
+  // Effect to update visible tick count - using a separate effect without visibleTickCount dependency
+  // to avoid unnecessary re-renders and potential stale closures
   useEffect(() => {
-    // Check if chart ref is available
-    if (chartRef.current) {
-      // Set initial tick count
-      const initialCount = chartRef.current.getVisibleTickCount();
-      setVisibleTickCount(initialCount);
-      console.log('Initial visible tick count:', initialCount);
-      
-      // Set up interval to periodically update the tick count
-      const intervalId = setInterval(() => {
-        if (chartRef.current) {
-          const count = chartRef.current.getVisibleTickCount();
-          if (count !== visibleTickCount) {
+    if (!chartRef.current) return;
+    
+    // Function to update the tick count
+    const updateTickCount = () => {
+      if (chartRef.current) {
+        const count = chartRef.current.getVisibleTickCount();
+        setVisibleTickCount(prevCount => {
+          if (prevCount !== count) {
             console.log('Visible tick count updated:', count);
-            setVisibleTickCount(count);
           }
-        }
-      }, 1000); // Update every second
-      
-      return () => clearInterval(intervalId);
-    }
-  }, [chartRef, visibleTickCount]);
+          return count;
+        });
+      }
+    };
+    
+    // Set initial tick count after a short delay to ensure chart is rendered
+    const initialTimer = setTimeout(() => {
+      updateTickCount();
+    }, 500);
+    
+    // Set up event listener for chart range changes instead of using an interval
+    document.addEventListener('chartRangeChanged', updateTickCount);
+    
+    // Still use a polling interval as a fallback - reduced frequency to every 2 seconds
+    const intervalId = setInterval(updateTickCount, 2000);
+    
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(intervalId);
+      document.removeEventListener('chartRangeChanged', updateTickCount);
+    };
+  }, [chartRef, data]); // Only re-run when chart ref or data changes
 
   return (
     <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md mb-6">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-xl font-semibold">Time Series Chart</h2>
         <div className="flex items-center gap-4">
-          {onForceReload && (
-            <button
-              onClick={onForceReload}
-              className="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded-md text-sm font-medium transition-colors"
-              disabled={loading}
-            >
-              {loading ? 'Loading...' : 'Force Reload Data'}
-            </button>
-          )}
           <div className="text-sm text-gray-600 dark:text-gray-400 flex items-center">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -98,23 +98,29 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
         <div className="bg-blue-50 dark:bg-blue-900/30 p-2 rounded-lg">
           <p className="text-sm">
             <span className="font-medium">Visible Data Points:</span> {visibleTickCount}
+            {currentGranularity && (
+              <span className="ml-1 text-xs text-gray-500">
+                (min: {currentGranularity.minVal}, max: {currentGranularity.maxVal})
+                {visibleTickCount < currentGranularity.minVal && (
+                  <span className="ml-1 text-orange-500">Too few - might switch to finer granularity</span>
+                )}
+                {visibleTickCount > currentGranularity.maxVal && (
+                  <span className="ml-1 text-orange-500">Too many - might switch to coarser granularity</span>
+                )}
+              </span>
+            )}
           </p>
         </div>
       </div>
       
       {data.length > 0 ? (
-        <div>
-          <div className="mb-2 text-sm text-gray-600 dark:text-gray-400">
-            <span className="font-medium">Viewing:</span> {formatTimestamp(parseInt(startNs))} to {formatTimestamp(parseInt(endNs))}
-          </div>
-          <Chart
-            ref={chartRef}
-            data={data}
-            onVisibleRangeChangeWithGranularity={onVisibleRangeChangeWithGranularity}
-            height={500}
-            currentGranularity={currentGranularity || undefined}
-          />
-        </div>
+        <Chart
+          ref={chartRef}
+          data={data}
+          onVisibleRangeChangeWithGranularity={onVisibleRangeChangeWithGranularity}
+          height={500}
+          currentGranularity={currentGranularity || undefined}
+        />
       ) : (
         <div className="h-[500px] flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded">
           {loading ? (
