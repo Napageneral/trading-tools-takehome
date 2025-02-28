@@ -31,6 +31,7 @@ export default function Home() {
     endNs,
     fetchDataHttp,
     handleVisibleRangeChangeWithGranularity,
+    forceReload,
   } = useTimeSeriesData({ dynamicGranularity });
 
   // Load initial data when stats are available
@@ -97,6 +98,22 @@ export default function Home() {
     }
   }, [stats, fetchDataHttp]);
 
+  // Update the handleForceReload function to use logical range
+  const handleForceReload = useCallback(() => {
+    if (chartRef.current) {
+      const visibleRange = chartRef.current.getVisibleRange();
+      const logicalRange = chartRef.current.getVisibleLogicalRange();
+      
+      if (visibleRange) {
+        console.log('Force reloading data for visible range:', visibleRange);
+        console.log('Logical range:', logicalRange);
+        forceReload(visibleRange, logicalRange);
+      } else {
+        console.log('No visible range available for force reload');
+      }
+    }
+  }, [forceReload]);
+
   // Combine all errors
   const error = statsError || uploadError || dataError;
   
@@ -136,6 +153,7 @@ export default function Home() {
         endNs={endNs}
         onVisibleRangeChangeWithGranularity={handleVisibleRangeChangeWithGranularity}
         chartRef={chartRef}
+        onForceReload={handleForceReload}
       />
     </div>
   );

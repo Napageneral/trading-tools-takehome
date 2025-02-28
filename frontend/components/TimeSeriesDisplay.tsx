@@ -12,6 +12,7 @@ interface TimeSeriesDisplayProps {
   endNs: string;
   onVisibleRangeChangeWithGranularity: (params: { from: number; to: number; visibleRangeNs: number }) => void;
   chartRef: MutableRefObject<TimeSeriesChartHandle | null>;
+  onForceReload?: () => void;
 }
 
 const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
@@ -22,7 +23,8 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
   startNs,
   endNs,
   onVisibleRangeChangeWithGranularity,
-  chartRef
+  chartRef,
+  onForceReload
 }) => {
   const renderGranularityText = (gran: string | null) => {
     switch(gran) {
@@ -38,11 +40,22 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
     <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md mb-6">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-xl font-semibold">Time Series Chart</h2>
-        <div className="text-sm text-gray-600 dark:text-gray-400 flex items-center">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <span>Drag to pan, scroll to zoom, double-click to reset view</span>
+        <div className="flex items-center gap-4">
+          {onForceReload && (
+            <button
+              onClick={onForceReload}
+              className="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded-md text-sm font-medium transition-colors"
+              disabled={loading}
+            >
+              {loading ? 'Loading...' : 'Force Reload Data'}
+            </button>
+          )}
+          <div className="text-sm text-gray-600 dark:text-gray-400 flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>Drag to pan, scroll to zoom, double-click to reset view</span>
+          </div>
         </div>
       </div>
       

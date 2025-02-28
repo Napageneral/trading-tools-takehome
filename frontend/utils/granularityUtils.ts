@@ -67,4 +67,25 @@ export const pickGranularityWithHysteresis = (visibleRangeNs: number, currentGra
   
   // Fallback
   return pickGranularity(visibleRangeNs);
-}; 
+};
+
+// Adding new helper functions for granularity management
+export function getNextCoarserGranularity(current: string): string | null {
+  // Put granularities in order from finest to coarsest
+  const ordered = ["tick", "1m", "5m", "15m", "30m", "1h"];
+  const idx = ordered.indexOf(current);
+  if (idx < 0 || idx === ordered.length - 1) {
+    return null;
+  }
+  return ordered[idx + 1];
+}
+
+export function computeCoverage(chartData: { time: number, value: number }[], startNs: number, endNs: number): number {
+  if (chartData.length === 0) return 0;
+  const first = chartData[0].time;
+  const last = chartData[chartData.length - 1].time;
+  const dataRangeNs = (last - first) * 1_000_000_000;
+  const requestedNs = endNs - startNs;
+  if (requestedNs <= 0) return 1;
+  return dataRangeNs / requestedNs;
+} 

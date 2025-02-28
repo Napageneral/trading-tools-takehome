@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
-import { createChart, IChartApi, ISeriesApi, LineData, TimeRange, LogicalRange, UTCTimestamp } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, LineData, LogicalRange, UTCTimestamp, Time, Range } from 'lightweight-charts';
 
 interface TimeSeriesChartProps {
   data: LineData[];
@@ -11,7 +11,12 @@ interface TimeSeriesChartProps {
 
 export interface TimeSeriesChartHandle {
   fitContent: () => void;
+  getVisibleRange: () => { from: number; to: number } | null;
+  getVisibleLogicalRange: () => { from: number; to: number } | null;
 }
+
+// Update the VisibleRange type definition to match the library's Range<Time> type
+type VisibleRange = Range<Time> | null;
 
 const TimeSeriesChart = forwardRef<TimeSeriesChartHandle, TimeSeriesChartProps>(({
   data,
@@ -34,12 +39,36 @@ const TimeSeriesChart = forwardRef<TimeSeriesChartHandle, TimeSeriesChartProps>(
         // After fitting content, trigger a visible range change event to update granularity
         const visibleRange = chartRef.current.timeScale().getVisibleRange();
         if (visibleRange && onVisibleRangeChangeWithGranularity) {
-          const from = visibleRange.from as number;
-          const to = visibleRange.to as number;
+          const from = Number(visibleRange.from);
+          const to = Number(visibleRange.to);
           const visibleRangeNs = Math.floor((to - from) * 1_000_000_000);
           onVisibleRangeChangeWithGranularity({ from, to, visibleRangeNs });
         }
       }
+    },
+    getVisibleRange: () => {
+      if (chartRef.current) {
+        const visibleRange = chartRef.current.timeScale().getVisibleRange();
+        if (visibleRange) {
+          return {
+            from: Number(visibleRange.from),
+            to: Number(visibleRange.to)
+          };
+        }
+      }
+      return null;
+    },
+    getVisibleLogicalRange: () => {
+      if (chartRef.current) {
+        const logicalRange = chartRef.current.timeScale().getVisibleLogicalRange();
+        if (logicalRange) {
+          return {
+            from: logicalRange.from,
+            to: logicalRange.to
+          };
+        }
+      }
+      return null;
     }
   }));
 
@@ -56,7 +85,7 @@ const TimeSeriesChart = forwardRef<TimeSeriesChartHandle, TimeSeriesChartProps>(
         width: chartContainerRef.current.clientWidth,
         height: height,
         layout: {
-          background: { type: 'solid', color: 'transparent' },
+          background: { color: 'transparent' },
           textColor: '#333',
           fontFamily: 'system-ui, -apple-system, sans-serif',
         },
@@ -125,10 +154,11 @@ const TimeSeriesChart = forwardRef<TimeSeriesChartHandle, TimeSeriesChartProps>(
 
       // Handle time range changes
       if (onRangeChange) {
-        chart.timeScale().subscribeVisibleTimeRangeChange((range: TimeRange | null) => {
+        chart.timeScale().subscribeVisibleTimeRangeChange((range) => {
+          console.log('subscribeVisibleTimeRangeChange event (onRangeChange):', range);
           if (range) {
-            const from = range.from as number;
-            const to = range.to as number;
+            const from = Number(range.from);
+            const to = Number(range.to);
             onRangeChange({ from, to });
           }
         });
@@ -136,10 +166,11 @@ const TimeSeriesChart = forwardRef<TimeSeriesChartHandle, TimeSeriesChartProps>(
 
       // Handle time range changes with granularity
       if (onVisibleRangeChangeWithGranularity) {
-        chart.timeScale().subscribeVisibleTimeRangeChange((range: TimeRange | null) => {
+        chart.timeScale().subscribeVisibleTimeRangeChange((range) => {
+          console.log('subscribeVisibleTimeRangeChange event (onVisibleRangeChangeWithGranularity):', range);
           if (range) {
-            const from = range.from as number;
-            const to = range.to as number;
+            const from = Number(range.from);
+            const to = Number(range.to);
             
             // Only trigger if the range has changed significantly
             if (!lastVisibleRangeRef.current || 
@@ -147,6 +178,7 @@ const TimeSeriesChart = forwardRef<TimeSeriesChartHandle, TimeSeriesChartProps>(
                 Math.abs(to - (lastVisibleRangeRef.current.to || 0)) > 0.01) {
               
               const visibleRangeNs = Math.floor((to - from) * 1_000_000_000);
+              console.log('Triggering onVisibleRangeChangeWithGranularity with:', { from, to, visibleRangeNs });
               onVisibleRangeChangeWithGranularity({ from, to, visibleRangeNs });
               
               // Update last visible range
@@ -157,12 +189,14 @@ const TimeSeriesChart = forwardRef<TimeSeriesChartHandle, TimeSeriesChartProps>(
         
         // Also subscribe to logical range change (zoom events)
         chart.timeScale().subscribeVisibleLogicalRangeChange((logicalRange: LogicalRange | null) => {
+          console.log('subscribeVisibleLogicalRangeChange event:', logicalRange);
           if (logicalRange) {
             // After zoom, get the actual time range
             const visibleRange = chart.timeScale().getVisibleRange();
+            console.log('Computed visible range from logical change:', visibleRange);
             if (visibleRange) {
-              const from = visibleRange.from as number;
-              const to = visibleRange.to as number;
+              const from = Number(visibleRange.from);
+              const to = Number(visibleRange.to);
               
               // Only trigger if the range has changed significantly
               if (!lastVisibleRangeRef.current || 
@@ -170,6 +204,7 @@ const TimeSeriesChart = forwardRef<TimeSeriesChartHandle, TimeSeriesChartProps>(
                   Math.abs(to - (lastVisibleRangeRef.current.to || 0)) > 0.01) {
                 
                 const visibleRangeNs = Math.floor((to - from) * 1_000_000_000);
+                console.log('Triggering onVisibleRangeChangeWithGranularity from logical change with:', { from, to, visibleRangeNs });
                 onVisibleRangeChangeWithGranularity({ from, to, visibleRangeNs });
                 
                 // Update last visible range
@@ -218,8 +253,8 @@ const TimeSeriesChart = forwardRef<TimeSeriesChartHandle, TimeSeriesChartProps>(
         // After fitting content, trigger a visible range change event to update granularity
         const visibleRange = chartRef.current.timeScale().getVisibleRange();
         if (visibleRange && onVisibleRangeChangeWithGranularity) {
-          const from = visibleRange.from as number;
-          const to = visibleRange.to as number;
+          const from = Number(visibleRange.from);
+          const to = Number(visibleRange.to);
           const visibleRangeNs = Math.floor((to - from) * 1_000_000_000);
           onVisibleRangeChangeWithGranularity({ from, to, visibleRangeNs });
         }
