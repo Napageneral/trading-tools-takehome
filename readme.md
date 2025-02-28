@@ -5,7 +5,7 @@ An interactive visualization tool for large timeseries data, capable of handling
 ## Features
 
 - **Interactive Chart**: Pan and zoom through the data with a responsive chart
-- **Data Table**: View the raw data in a sortable, filterable table
+- **Human-Readable Timestamps**: All timestamps are displayed in a user-friendly format
 - **WebSocket Streaming**: Stream data to the UI for real-time updates
 - **Downsampling**: Reduce data density with configurable granularity levels
 - **File Upload**: Upload your own CSV data files
@@ -23,7 +23,6 @@ An interactive visualization tool for large timeseries data, capable of handling
 - **Next.js**: React framework for building the UI
 - **Tailwind CSS**: Utility-first CSS framework
 - **Lightweight Charts**: Fast, lightweight charting library
-- **AG Grid**: Advanced data table component
 
 ## Getting Started
 
@@ -78,13 +77,24 @@ python load_data.py
 
 3. Open your browser and navigate to http://localhost:3000
 
+### Docker
+
+Alternatively, you can run the application using Docker:
+
+```bash
+docker-compose up --build
+```
+
 ## Usage
 
 1. **View Data**: The initial view shows statistics about the loaded dataset
-2. **Set Time Range**: Enter start and end timestamps (in nanoseconds)
+2. **Set Time Range**: Enter start and end dates using the datetime pickers
 3. **Select Granularity**: Choose a downsampling level if needed
 4. **Fetch Data**: Click the "Fetch Data" button to load and visualize the data
-5. **Interact**: Pan and zoom in the chart to explore different time ranges
+5. **Interact**: 
+   - Drag to pan through the chart
+   - Use mouse wheel to zoom in/out
+   - Double-click to reset the view
 6. **Upload**: Use the file upload feature to visualize your own CSV data
 
 ## Scaling to 1 Billion Points

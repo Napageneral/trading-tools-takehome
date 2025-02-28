@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import TimeSeriesChart from '@/components/TimeSeriesChart';
-import DataTable from '@/components/DataTable';
 import { RingBuffer } from '@/components/RingBuffer';
 import { LineData } from 'lightweight-charts';
 
@@ -18,17 +17,38 @@ const GRANULARITIES = [
   { label: '1 Day', value: '1d' },
 ];
 
+// Helper function to format nanosecond timestamp to human-readable format
+const formatTimestamp = (timestampNs: number): string => {
+  const date = new Date(timestampNs / 1_000_000); // Convert ns to ms
+  return date.toLocaleString();
+};
+
+// Helper function to parse human-readable date to nanoseconds
+const parseTimestamp = (dateString: string): number | null => {
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return null;
+    return date.getTime() * 1_000_000; // Convert ms to ns
+  } catch (e) {
+    return null;
+  }
+};
+
 export default function Home() {
   // State for data
   const [chartData, setChartData] = useState<LineData[]>([]);
-  const [tableData, setTableData] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<any>(null);
 
-  // State for time range inputs
+  // State for time range inputs (human-readable format)
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+  
+  // State for actual nanosecond values (used for API calls)
   const [startNs, setStartNs] = useState<string>('');
   const [endNs, setEndNs] = useState<string>('');
+  
   const [granularity, setGranularity] = useState<string | null>(null);
 
   // WebSocket reference
@@ -52,6 +72,10 @@ export default function Home() {
         if (data.min_timestamp_ns && data.max_timestamp_ns) {
           setStartNs(data.min_timestamp_ns.toString());
           setEndNs(data.max_timestamp_ns.toString());
+          
+          // Set human-readable dates
+          setStartDate(formatTimestamp(data.min_timestamp_ns));
+          setEndDate(formatTimestamp(data.max_timestamp_ns));
         }
       } catch (err) {
         console.error('Error fetching stats:', err);
@@ -61,6 +85,21 @@ export default function Home() {
 
     fetchStats();
   }, []);
+
+  // Update nanosecond values when human-readable dates change
+  useEffect(() => {
+    const startNsValue = parseTimestamp(startDate);
+    if (startNsValue) {
+      setStartNs(startNsValue.toString());
+    }
+  }, [startDate]);
+
+  useEffect(() => {
+    const endNsValue = parseTimestamp(endDate);
+    if (endNsValue) {
+      setEndNs(endNsValue.toString());
+    }
+  }, [endDate]);
 
   // Connect to WebSocket
   const connectWebSocket = useCallback(() => {
@@ -90,9 +129,6 @@ export default function Home() {
           setLoading(false);
           return;
         }
-
-        // Process data for chart and table
-        const newTableData = [...chunk];
         
         // Convert to format expected by lightweight-charts
         const newChartData = chunk.map((point: any) => ({
@@ -107,9 +143,6 @@ export default function Home() {
 
         // Update chart with all data in ring buffer
         setChartData(ringBufferRef.current.toArray());
-        
-        // Update table with new chunk only (to avoid performance issues)
-        setTableData(prev => [...prev, ...newTableData]);
       }
     };
 
@@ -129,7 +162,7 @@ export default function Home() {
   // Handle fetch button click
   const handleFetch = useCallback(() => {
     if (!startNs || !endNs) {
-      setError('Please enter start and end timestamps');
+      setError('Please enter valid start and end dates');
       return;
     }
 
@@ -139,7 +172,6 @@ export default function Home() {
     // Clear previous data
     ringBufferRef.current.clear();
     setChartData([]);
-    setTableData([]);
 
     // Connect to WebSocket and fetch data
     connectWebSocket();
@@ -179,6 +211,10 @@ export default function Home() {
         if (statsData.min_timestamp_ns && statsData.max_timestamp_ns) {
           setStartNs(statsData.min_timestamp_ns.toString());
           setEndNs(statsData.max_timestamp_ns.toString());
+          
+          // Set human-readable dates
+          setStartDate(formatTimestamp(statsData.min_timestamp_ns));
+          setEndDate(formatTimestamp(statsData.max_timestamp_ns));
         }
       }
     } catch (err) {
@@ -203,6 +239,10 @@ export default function Home() {
       setStartNs(fromNs.toString());
       setEndNs(toNs.toString());
       
+      // Update human-readable dates
+      setStartDate(formatTimestamp(fromNs));
+      setEndDate(formatTimestamp(toNs));
+      
       // Optionally, you could auto-fetch here for continuous panning
       // handleFetch();
     }
@@ -224,12 +264,12 @@ export default function Home() {
             <div>
               <p className="text-sm text-gray-600 dark:text-gray-300">Time Range</p>
               <p className="font-medium">
-                {new Date(stats.min_timestamp_ns / 1_000_000).toISOString()} to {new Date(stats.max_timestamp_ns / 1_000_000).toISOString()}
+                {formatTimestamp(stats.min_timestamp_ns)} to {formatTimestamp(stats.max_timestamp_ns)}
               </p>
             </div>
             <div>
               <p className="text-sm text-gray-600 dark:text-gray-300">Value Range</p>
-              <p className="font-medium">{stats.min_value} to {stats.max_value}</p>
+              <p className="font-medium">{stats.min_value.toFixed(2)} to {stats.max_value.toFixed(2)}</p>
             </div>
           </div>
         </div>
@@ -239,23 +279,21 @@ export default function Home() {
       <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md mb-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
           <div>
-            <label className="block text-sm font-medium mb-1">Start Timestamp (ns)</label>
+            <label className="block text-sm font-medium mb-1">Start Date</label>
             <input
-              type="text"
-              value={startNs}
-              onChange={(e) => setStartNs(e.target.value)}
+              type="datetime-local"
+              value={startDate.replace(' ', 'T')}
+              onChange={(e) => setStartDate(e.target.value)}
               className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600"
-              placeholder="e.g. 1721395800000000000"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">End Timestamp (ns)</label>
+            <label className="block text-sm font-medium mb-1">End Date</label>
             <input
-              type="text"
-              value={endNs}
-              onChange={(e) => setEndNs(e.target.value)}
+              type="datetime-local"
+              value={endDate.replace(' ', 'T')}
+              onChange={(e) => setEndDate(e.target.value)}
               className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600"
-              placeholder="e.g. 1721395900000000000"
             />
           </div>
           <div>
@@ -304,35 +342,41 @@ export default function Home() {
       
       {/* Chart */}
       <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md mb-6">
-        <h2 className="text-xl font-semibold mb-4">Time Series Chart</h2>
-        {chartData.length > 0 ? (
-          <TimeSeriesChart
-            data={chartData}
-            onRangeChange={handleChartRangeChange}
-            height={400}
-          />
-        ) : (
-          <div className="h-[400px] flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded">
-            {loading ? (
-              <p>Loading data...</p>
-            ) : (
-              <p>No data to display. Please fetch data first.</p>
-            )}
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-semibold">Time Series Chart</h2>
+          <div className="text-sm text-gray-600 dark:text-gray-400 flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>Drag to pan, scroll to zoom, double-click to reset view</span>
           </div>
-        )}
-      </div>
-      
-      {/* Data Table */}
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
-        <h2 className="text-xl font-semibold mb-4">Data Table</h2>
-        {tableData.length > 0 ? (
-          <DataTable data={tableData} height={400} />
+        </div>
+        
+        {chartData.length > 0 ? (
+          <div>
+            <div className="mb-2 text-sm text-gray-600 dark:text-gray-400">
+              <span className="font-medium">Viewing:</span> {formatTimestamp(parseInt(startNs))} to {formatTimestamp(parseInt(endNs))}
+            </div>
+            <TimeSeriesChart
+              data={chartData}
+              onRangeChange={handleChartRangeChange}
+              height={500}
+            />
+          </div>
         ) : (
-          <div className="h-[400px] flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded">
+          <div className="h-[500px] flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded">
             {loading ? (
-              <p>Loading data...</p>
+              <div className="text-center">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mb-2"></div>
+                <p>Loading data...</p>
+              </div>
             ) : (
-              <p>No data to display. Please fetch data first.</p>
+              <div className="text-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto mb-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                <p>No data to display. Please fetch data first.</p>
+              </div>
             )}
           </div>
         )}
