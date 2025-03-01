@@ -55,4 +55,30 @@ export const GRANULARITIES: { [key: string]: Granularity } = {
 };
 
 // Default granularity
-export const DEFAULT_GRANULARITY = oneMinute; 
+export const DEFAULT_GRANULARITY = oneMinute;
+
+// Add interval mapping helper function
+export function getIntervalForGranularity(gran: Granularity): { timeUnit: "millisecond" | "second" | "minute" | "hour" | "day" | "week" | "month" | "year", count: number } {
+    switch (gran.symbol) {
+        case "1t":
+            return { timeUnit: "millisecond", count: 1 };
+        case "1s":
+            return { timeUnit: "second", count: 1 };
+        case "1m":
+            return { timeUnit: "minute", count: 1 };
+        case "5m":
+            return { timeUnit: "minute", count: 5 };
+        case "1h":
+            return { timeUnit: "hour", count: 1 };
+        case "1d":
+            return { timeUnit: "day", count: 1 };
+        case "1w":
+            return { timeUnit: "week", count: 1 };
+        case "1M":
+            return { timeUnit: "month", count: 1 };
+        case "1y":
+            return { timeUnit: "year", count: 1 };
+        default:
+            return { timeUnit: "second", count: 1 };
+    }
+} 
