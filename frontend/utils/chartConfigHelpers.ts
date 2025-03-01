@@ -247,6 +247,31 @@ export const configureChartEvents = (
 ) => {
   if (!onVisibleRangeChangeWithGranularity) return;
 
+  // Helper function to update the visible tick count
+  const updateVisibleTickCount = (from: number, to: number) => {
+    if (data) {
+      const count = calculateVisibleTickCount(data, from, to);
+      
+      // Update the ref
+      if (visibleTickCountRef) {
+        visibleTickCountRef.current = count;
+      }
+      
+      // Directly update the UI component
+      try {
+        // @ts-ignore
+        if (typeof window !== 'undefined' && window.updateTickCount) {
+          // @ts-ignore
+          window.updateTickCount(count);
+        }
+      } catch (e) {
+        console.error('Error updating tick count:', e);
+      }
+      
+      console.log(`Updated visible tick count: ${count}`);
+    }
+  };
+
   // Using a type assertion to bypass type checking for this event name
   (dateAxis.events as any).on("selectionextremeschanged", () => {
     if (dateAxis.getPrivate("selectionMin") && dateAxis.getPrivate("selectionMax")) {
@@ -260,28 +285,8 @@ export const configureChartEvents = (
         
         const visibleRangeNs = Math.floor((to - from) * 1_000_000_000);
         
-        // Calculate visible tick count and update the ref
-        if (data) {
-          const count = calculateVisibleTickCount(data, from, to);
-          
-          // Update the ref
-          if (visibleTickCountRef) {
-            visibleTickCountRef.current = count;
-          }
-          
-          // Directly update the UI component
-          try {
-            // @ts-ignore
-            if (typeof window !== 'undefined' && window.updateTickCount) {
-              // @ts-ignore
-              window.updateTickCount(count);
-            }
-          } catch (e) {
-            console.error('Error updating tick count:', e);
-          }
-          
-          console.log(`Updated visible tick count: ${count}`);
-        }
+        // Update visible tick count
+        updateVisibleTickCount(from, to);
         
         if (onVisibleRangeChangeWithGranularity) {
           onVisibleRangeChangeWithGranularity({ from, to, visibleRangeNs });
@@ -301,30 +306,68 @@ export const configureChartEvents = (
       const from = dateAxis.getPrivate("selectionMin") as number / 1000;
       const to = dateAxis.getPrivate("selectionMax") as number / 1000;
       
-      // Calculate visible tick count and update the ref
-      if (data) {
-        const count = calculateVisibleTickCount(data, from, to);
-        
-        // Update the ref
-        if (visibleTickCountRef) {
-          visibleTickCountRef.current = count;
-        }
-        
-        // Directly update the UI component
-        try {
-          // @ts-ignore
-          if (typeof window !== 'undefined' && window.updateTickCount) {
-            // @ts-ignore
-            window.updateTickCount(count);
-          }
-        } catch (e) {
-          console.error('Error updating tick count:', e);
-        }
-        
-        console.log(`Updated visible tick count after zoom: ${count}`);
-      }
+      // Update visible tick count
+      updateVisibleTickCount(from, to);
     }
   });
+  
+  // Listen for any zoom events on the main panel
+  mainPanel.events.on("wheel", () => {
+    // Use setTimeout to ensure we get the updated range after the zoom completes
+    setTimeout(() => {
+      if (dateAxis.getPrivate("selectionMin") && dateAxis.getPrivate("selectionMax")) {
+        const from = dateAxis.getPrivate("selectionMin") as number / 1000;
+        const to = dateAxis.getPrivate("selectionMax") as number / 1000;
+        
+        // Update visible tick count
+        updateVisibleTickCount(from, to);
+      }
+    }, 50); // Small delay to ensure the zoom has completed
+  });
+  
+  // Set up a MutationObserver to monitor changes to the chart's DOM
+  // This is a more comprehensive approach to catch all zoom events
+  try {
+    if (typeof window !== 'undefined' && window.MutationObserver) {
+      const chartDiv = mainPanel.root.dom;
+      if (chartDiv) {
+        // Create a throttled update function to avoid too many updates
+        let throttleTimeout: any = null;
+        const throttledUpdate = () => {
+          if (throttleTimeout) {
+            clearTimeout(throttleTimeout);
+          }
+          throttleTimeout = setTimeout(() => {
+            if (dateAxis.getPrivate("selectionMin") && dateAxis.getPrivate("selectionMax")) {
+              const from = dateAxis.getPrivate("selectionMin") as number / 1000;
+              const to = dateAxis.getPrivate("selectionMax") as number / 1000;
+              
+              // Update visible tick count
+              updateVisibleTickCount(from, to);
+            }
+          }, 100); // Throttle to avoid too many updates
+        };
+        
+        // Create a MutationObserver to watch for changes to the chart
+        const observer = new MutationObserver(throttledUpdate);
+        
+        // Start observing the chart container for attribute changes
+        observer.observe(chartDiv, { 
+          attributes: true, 
+          childList: true, 
+          subtree: true,
+          attributeFilter: ['transform', 'width', 'height', 'd'] 
+        });
+        
+        // Clean up the observer when the chart is disposed
+        mainPanel.events.once("disposed" as any, () => {
+          observer.disconnect();
+        });
+      }
+    }
+  } catch (e) {
+    console.error('Error setting up MutationObserver:', e);
+  }
   
   // Add scrollbar range changed event listener
   const scrollbarX = mainPanel.get("scrollbarX") as am5xy.XYChartScrollbar;
@@ -344,28 +387,8 @@ export const configureChartEvents = (
       const from = fromMs / 1000;
       const to = toMs / 1000;
       
-      // Calculate visible tick count and update the ref
-      if (data) {
-        const count = calculateVisibleTickCount(data, from, to);
-        
-        // Update the ref
-        if (visibleTickCountRef) {
-          visibleTickCountRef.current = count;
-        }
-        
-        // Directly update the UI component
-        try {
-          // @ts-ignore
-          if (typeof window !== 'undefined' && window.updateTickCount) {
-            // @ts-ignore
-            window.updateTickCount(count);
-          }
-        } catch (e) {
-          console.error('Error updating tick count:', e);
-        }
-        
-        console.log(`Updated visible tick count after scrollbar change: ${count}`);
-      }
+      // Update visible tick count
+      updateVisibleTickCount(from, to);
       
       // Update the visible range reference
       if (lastVisibleRangeRef) {
