@@ -6,7 +6,7 @@ import * as am5xy from '@amcharts/amcharts5/xy';
 import * as am5stock from '@amcharts/amcharts5/stock';
 import { GRANULARITIES, Granularity, getIntervalForGranularity } from '../types/Granularity';
 import { DEFAULT_GRANULARITY } from './chartDefaults';
-import { hasOHLCFormat } from './chartDataTransform';
+import { hasOHLCFormat, calculateVisibleTickCount } from './chartDataTransform';
 
 /**
  * Configure the interval switcher for the chart
@@ -92,6 +92,25 @@ export const configureIntervalSwitcher = (
       const from = (dateAxis.getPrivate("selectionMin" as any) as number) / 1000;
       const to = (dateAxis.getPrivate("selectionMax" as any) as number) / 1000;
       const visibleRangeNs = Math.floor((to - from) * 1_000_000_000);
+      
+      // Calculate and update visible tick count
+      if (valueSeries && valueSeries.data && valueSeries.data.values) {
+        const count = calculateVisibleTickCount(valueSeries.data.values, from, to);
+        
+        // Directly update the UI component
+        try {
+          // @ts-ignore
+          if (typeof window !== 'undefined' && window.updateTickCount) {
+            // @ts-ignore
+            window.updateTickCount(count);
+          }
+        } catch (e) {
+          console.error('Error updating tick count:', e);
+        }
+        
+        console.log(`Updated visible tick count after granularity change: ${count}`);
+      }
+      
       onVisibleRangeChangeWithGranularity({ from, to, visibleRangeNs });
     }
   });
@@ -172,6 +191,32 @@ export const configureSeriesSwitcher = (
         cursor.set("snapToSeries", [series]);
       }
       valueLegend.data.insertIndex(0, series);
+      
+      // Update visible tick count after series type change
+      series.events.once("datavalidated", function() {
+        // Get the current visible range
+        const xAxis = mainPanel.xAxes.getIndex(0) as am5xy.DateAxis<am5xy.AxisRenderer>;
+        if (xAxis && xAxis.getPrivate("selectionMin") && xAxis.getPrivate("selectionMax")) {
+          const from = xAxis.getPrivate("selectionMin") as number / 1000;
+          const to = xAxis.getPrivate("selectionMax") as number / 1000;
+          
+          // Calculate visible tick count
+          const count = calculateVisibleTickCount(data, from, to);
+          
+          // Directly update the UI component
+          try {
+            // @ts-ignore
+            if (typeof window !== 'undefined' && window.updateTickCount) {
+              // @ts-ignore
+              window.updateTickCount(count);
+            }
+          } catch (e) {
+            console.error('Error updating tick count:', e);
+          }
+          
+          console.log(`Updated visible tick count after series type change: ${count}`);
+        }
+      });
     }
   }
 
@@ -215,6 +260,29 @@ export const configureChartEvents = (
         
         const visibleRangeNs = Math.floor((to - from) * 1_000_000_000);
         
+        // Calculate visible tick count and update the ref
+        if (data) {
+          const count = calculateVisibleTickCount(data, from, to);
+          
+          // Update the ref
+          if (visibleTickCountRef) {
+            visibleTickCountRef.current = count;
+          }
+          
+          // Directly update the UI component
+          try {
+            // @ts-ignore
+            if (typeof window !== 'undefined' && window.updateTickCount) {
+              // @ts-ignore
+              window.updateTickCount(count);
+            }
+          } catch (e) {
+            console.error('Error updating tick count:', e);
+          }
+          
+          console.log(`Updated visible tick count: ${count}`);
+        }
+        
         if (onVisibleRangeChangeWithGranularity) {
           onVisibleRangeChangeWithGranularity({ from, to, visibleRangeNs });
         }
@@ -232,6 +300,29 @@ export const configureChartEvents = (
     if (dateAxis.getPrivate("selectionMin") && dateAxis.getPrivate("selectionMax")) {
       const from = dateAxis.getPrivate("selectionMin") as number / 1000;
       const to = dateAxis.getPrivate("selectionMax") as number / 1000;
+      
+      // Calculate visible tick count and update the ref
+      if (data) {
+        const count = calculateVisibleTickCount(data, from, to);
+        
+        // Update the ref
+        if (visibleTickCountRef) {
+          visibleTickCountRef.current = count;
+        }
+        
+        // Directly update the UI component
+        try {
+          // @ts-ignore
+          if (typeof window !== 'undefined' && window.updateTickCount) {
+            // @ts-ignore
+            window.updateTickCount(count);
+          }
+        } catch (e) {
+          console.error('Error updating tick count:', e);
+        }
+        
+        console.log(`Updated visible tick count after zoom: ${count}`);
+      }
     }
   });
   
@@ -252,6 +343,29 @@ export const configureChartEvents = (
       // Convert from milliseconds to seconds
       const from = fromMs / 1000;
       const to = toMs / 1000;
+      
+      // Calculate visible tick count and update the ref
+      if (data) {
+        const count = calculateVisibleTickCount(data, from, to);
+        
+        // Update the ref
+        if (visibleTickCountRef) {
+          visibleTickCountRef.current = count;
+        }
+        
+        // Directly update the UI component
+        try {
+          // @ts-ignore
+          if (typeof window !== 'undefined' && window.updateTickCount) {
+            // @ts-ignore
+            window.updateTickCount(count);
+          }
+        } catch (e) {
+          console.error('Error updating tick count:', e);
+        }
+        
+        console.log(`Updated visible tick count after scrollbar change: ${count}`);
+      }
       
       // Update the visible range reference
       if (lastVisibleRangeRef) {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, MutableRefObject } from 'react';
+import React, { useState, useEffect, MutableRefObject, useCallback, useRef } from 'react';
 import Chart, { ChartHandle } from './Chart';
 import { Granularity } from '../types/Granularity';
 
@@ -26,6 +26,45 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
   // Add state for visible tick count
   const [visibleTickCount, setVisibleTickCount] = useState<number>(0);
 
+  // Create a ref to hold the setVisibleTickCount function so it can be accessed from outside
+  const setVisibleTickCountRef = useRef<(count: number) => void>((count) => {
+    setVisibleTickCount(count);
+  });
+
+  // Update the ref whenever setVisibleTickCount changes
+  useEffect(() => {
+    setVisibleTickCountRef.current = (count) => {
+      setVisibleTickCount(count);
+    };
+  }, [setVisibleTickCount]);
+
+  // Expose the setVisibleTickCount function to the window object for debugging
+  useEffect(() => {
+    // @ts-ignore
+    window.updateTickCount = (count: number) => {
+      setVisibleTickCount(count);
+      console.log('Tick count updated via window object:', count);
+    };
+
+    return () => {
+      // @ts-ignore
+      delete window.updateTickCount;
+    };
+  }, []);
+
+  // Wrapper for onVisibleRangeChangeWithGranularity that also updates the tick count
+  const handleVisibleRangeChange = useCallback((params: { from: number; to: number; visibleRangeNs: number }) => {
+    // Update the tick count if chart ref is available
+    if (chartRef.current) {
+      const count = chartRef.current.getVisibleTickCount();
+      setVisibleTickCount(count);
+      console.log('Visible tick count updated from range change:', count);
+    }
+    
+    // Call the original callback
+    onVisibleRangeChangeWithGranularity(params);
+  }, [chartRef, onVisibleRangeChangeWithGranularity]);
+
   // Effect to update visible tick count
   useEffect(() => {
     // Check if chart ref is available
@@ -44,11 +83,11 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
             setVisibleTickCount(count);
           }
         }
-      }, 1000); // Update every second
+      }, 500); // Update more frequently (every 500ms)
       
       return () => clearInterval(intervalId);
     }
-  }, [chartRef, visibleTickCount]);
+  }, [chartRef]);
 
   return (
     <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md mb-6">
@@ -126,7 +165,7 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
       {!loading && data && data.length > 0 && (
         <Chart
           data={data}
-          onVisibleRangeChangeWithGranularity={onVisibleRangeChangeWithGranularity}
+          onVisibleRangeChangeWithGranularity={handleVisibleRangeChange}
           ref={chartRef}
           height={500}
           currentGranularity={currentGranularity || undefined}
