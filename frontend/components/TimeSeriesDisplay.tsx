@@ -10,6 +10,7 @@ interface TimeSeriesDisplayProps {
   startNs: string;
   endNs: string;
   onVisibleRangeChangeWithGranularity: (params: { from: number; to: number; visibleRangeNs: number }) => void;
+  onGranularityChange: (granularity: Granularity) => void;
   chartRef: MutableRefObject<ChartHandle | null>;
 }
 
@@ -21,6 +22,7 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
   startNs,
   endNs,
   onVisibleRangeChangeWithGranularity,
+  onGranularityChange,
   chartRef
 }) => {
   // Add state for visible tick count
@@ -43,7 +45,6 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
     // @ts-ignore
     window.updateTickCount = (count: number) => {
       setVisibleTickCount(count);
-      console.log('Tick count updated via window object:', count);
     };
 
     return () => {
@@ -58,7 +59,6 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
     if (chartRef.current) {
       const count = chartRef.current.getVisibleTickCount();
       setVisibleTickCount(count);
-      console.log('Visible tick count updated from range change:', count);
     }
     
     // Call the original callback
@@ -72,14 +72,12 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
       // Set initial tick count
       const initialCount = chartRef.current.getVisibleTickCount();
       setVisibleTickCount(initialCount);
-      console.log('Initial visible tick count:', initialCount);
       
       // Set up interval to periodically update the tick count
       const intervalId = setInterval(() => {
         if (chartRef.current) {
           const count = chartRef.current.getVisibleTickCount();
           if (count !== visibleTickCount) {
-            console.log('Visible tick count updated:', count);
             setVisibleTickCount(count);
           }
         }
@@ -166,6 +164,7 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
         <Chart
           data={data}
           onVisibleRangeChangeWithGranularity={handleVisibleRangeChange}
+          onGranularityChange={onGranularityChange}
           ref={chartRef}
           height={500}
           currentGranularity={currentGranularity || undefined}

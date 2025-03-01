@@ -29,6 +29,7 @@ export default function Home() {
     endNs,
     loadData,
     handleVisibleRangeChangeWithGranularity,
+    setGranularity,
   } = useTimeSeriesData({ dynamicGranularity });
 
   // Load initial data when stats are available
@@ -189,6 +190,7 @@ export default function Home() {
         startNs={startNs}
         endNs={endNs}
         onVisibleRangeChangeWithGranularity={handleVisibleRangeChangeWithGranularity}
+        onGranularityChange={setGranularity}
         chartRef={chartRef}
       />
     </div>

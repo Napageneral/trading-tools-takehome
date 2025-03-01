@@ -22,16 +22,20 @@ export const configureIntervalSwitcher = (
   onGranularityChange?: (granularity: Granularity) => void,
   onVisibleRangeChangeWithGranularity?: (range: { from: number; to: number; visibleRangeNs: number }) => void,
 ) => {
-  // Create interval switcher items from our granularity chain
-  const intervalItems = Object.values(GRANULARITIES).map((gran) => {
-    const interval = getIntervalForGranularity(gran);
-    return {
-      id: gran.symbol,
-      label: gran.name,
-      interval,
-      granularity: gran
-    };
-  });
+  // Create interval switcher items only for the required granularities
+  const allowedGranularities = ['1t', '1s', '1m', '5m', '1h', '1d'];
+  
+  const intervalItems = Object.values(GRANULARITIES)
+    .filter(gran => allowedGranularities.includes(gran.symbol))
+    .map((gran) => {
+      const interval = getIntervalForGranularity(gran);
+      return {
+        id: gran.symbol,
+        label: gran.name,
+        interval,
+        granularity: gran
+      };
+    });
 
   // Create interval switcher
   const intervalSwitcher = am5stock.IntervalControl.new(root, {
@@ -65,11 +69,26 @@ export const configureIntervalSwitcher = (
 
     const selectedGran = item.granularity;
     
-    // Set up zoomout
-    if (valueSeries) {
-      valueSeries.events.once("datavalidated", function() {
+    // Set up zoomout - with safety check to avoid "EventDispatcher is disposed" error
+    if (valueSeries && !valueSeries.isDisposed() && valueSeries.events && !valueSeries.events.isDisposed()) {
+      try {
+        valueSeries.events.once("datavalidated", function() {
+          if (!mainPanel.isDisposed()) {
+            mainPanel.zoomOut();
+          }
+        });
+      } catch (e) {
+        console.warn("Error setting up datavalidated event:", e);
+        // Fall back to direct zoom out
+        if (!mainPanel.isDisposed()) {
+          mainPanel.zoomOut();
+        }
+      }
+    } else {
+      // If valueSeries is not available, try to zoom out directly
+      if (!mainPanel.isDisposed()) {
         mainPanel.zoomOut();
-      });
+      }
     }
 
     // Set baseInterval on the axes with casting to bypass type issues
@@ -84,6 +103,7 @@ export const configureIntervalSwitcher = (
     
     // Notify parent component of granularity change
     if (onGranularityChange) {
+      // This will trigger loading data from the server for the selected granularity
       onGranularityChange(selectedGran);
     }
     
@@ -94,7 +114,7 @@ export const configureIntervalSwitcher = (
       const visibleRangeNs = Math.floor((to - from) * 1_000_000_000);
       
       // Calculate and update visible tick count
-      if (valueSeries && valueSeries.data && valueSeries.data.values) {
+      if (valueSeries && !valueSeries.isDisposed() && valueSeries.data && valueSeries.data.values) {
         const count = calculateVisibleTickCount(valueSeries.data.values, from, to);
         
         // Directly update the UI component
@@ -107,8 +127,6 @@ export const configureIntervalSwitcher = (
         } catch (e) {
           console.error('Error updating tick count:', e);
         }
-        
-        console.log(`Updated visible tick count after granularity change: ${count}`);
       }
       
       onVisibleRangeChangeWithGranularity({ from, to, visibleRangeNs });
@@ -213,8 +231,6 @@ export const configureSeriesSwitcher = (
           } catch (e) {
             console.error('Error updating tick count:', e);
           }
-          
-          console.log(`Updated visible tick count after series type change: ${count}`);
         }
       });
     }
@@ -267,8 +283,6 @@ export const configureChartEvents = (
       } catch (e) {
         console.error('Error updating tick count:', e);
       }
-      
-      console.log(`Updated visible tick count: ${count}`);
     }
   };
 

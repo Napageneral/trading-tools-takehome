@@ -7,10 +7,11 @@ import { GRANULARITIES, DEFAULT_GRANULARITY, Granularity } from '../types/Granul
 
 interface TimeSeriesDataOptions {
   dynamicGranularity?: boolean;
+  onVisibleRangeChangeWithGranularity?: (range: { from: number; to: number; visibleRangeNs: number }) => void;
 }
 
 export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
-  const { dynamicGranularity = true } = options;
+  const { dynamicGranularity = true, onVisibleRangeChangeWithGranularity } = options;
   
   // State for data
   const [chartData, setChartData] = useState<LineData<Time>[]>([]);
@@ -39,6 +40,10 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
   
   // Pending action to execute once data is received
   const pendingActionRef = useRef<string | null>(null);
+  
+  // Track the last time we changed granularity to add hysteresis - moved to top level
+  const lastGranChangeTimeRef = useRef<number>(0);
+  const GRANULARITY_CHANGE_COOLDOWN_MS = 1000; // 1 second cooldown
   
   // Connect to WebSocket - now it's a persistent connection
   const connectWebSocket = useCallback(() => {
@@ -218,24 +223,20 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
     console.log(`Setting granularity to ${granularity.symbol}`);
     setLoading(true);
     
-    // Parse the current time range
+    // Parse the current time range from state
     const startNsValue = startNs ? parseInt(startNs) : 0;
     const endNsValue = endNs ? parseInt(endNs) : 0;
     
-    if (startNsValue && endNsValue) {
-      // Send set_granularity via WebSocket
-      sendWsMessage({
-        action: 'set_granularity',
-        symbol: granularity.symbol
-      });
-      
-      // We'll update the state when we receive confirmation
-    } else {
-      // No time range set yet, just update the state
-      setCurrentGranularity(granularity);
-      setLoading(false);
-    }
-  }, [currentGranularity, sendWsMessage, startNs, endNs]);
+    // Clear the cache for this time range with the new granularity so that a fresh fetch is forced
+    const cacheKey = `${startNsValue}_${endNsValue}_${granularity.symbol}`;
+    dataCache.current.delete(cacheKey);
+    
+    // Update the current granularity state
+    setCurrentGranularity(granularity);
+    
+    // Trigger loading new data for the current time range with the new granularity
+    loadData(startNsValue, endNsValue, granularity);
+  }, [currentGranularity, startNs, endNs, loadData]);
 
   // Move to coarser granularity
   const moveUpGran = useCallback(() => {
@@ -317,111 +318,11 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
     setStartNs(fromNs.toString());
     setEndNs(toNs.toString());
     
-    // Get the current visible tick count from the chart data
-    const chartDataArray = ringBufferRef.current.toArray();
-    
-    // Count data points within the visible range
-    const visiblePoints = chartDataArray.filter(point => {
-      const pointTimeSec = typeof point.time === 'number' ? point.time : Number(point.time);
-      return pointTimeSec >= from && pointTimeSec <= to;
-    });
-    
-    const visibleTickCount = visiblePoints.length;
-    console.log(`Visible data points in viewport: ${visibleTickCount}`);
-    
-    // Track the last time we changed granularity to add hysteresis
-    const lastGranChangeTimeRef = useRef<number>(0);
-    const GRANULARITY_CHANGE_COOLDOWN_MS = 1000; // 1 second cooldown
-    const now = Date.now();
-    
-    // Function to check if we should change granularity based on tick count
-    const maybeSwitchGranByTickCount = () => {
-      // Only change if we're not in cooldown period
-      if (now - lastGranChangeTimeRef.current < GRANULARITY_CHANGE_COOLDOWN_MS) {
-        console.log('Still in granularity change cooldown period, skipping check');
-        return false;
-      }
-      
-      // Check if we have too few visible points and should move to finer granularity
-      if (currentGranularity && 
-          visibleTickCount < currentGranularity.minVal && 
-          currentGranularity.down) {
-        console.log(`Only ${visibleTickCount} points visible. Minimum desired is ${currentGranularity.minVal}. Moving to finer granularity: ${currentGranularity.down.symbol}`);
-        
-        // Add additional safety check - only move down if we're not at the bottom already
-        if (currentGranularity.down.symbol !== '1t') {
-          moveDownGran();
-          lastGranChangeTimeRef.current = now;
-          return true;
-        }
-      }
-      // Check if we have too many visible points and should move to coarser granularity
-      else if (currentGranularity && 
-              visibleTickCount > currentGranularity.maxVal && 
-              currentGranularity.up) {
-        console.log(`Too many points: ${visibleTickCount}. Maximum desired is ${currentGranularity.maxVal}. Moving to coarser granularity: ${currentGranularity.up.symbol}`);
-        
-        // Add additional safety check - only move up if we're not at the top already
-        if (currentGranularity.up.symbol !== '1y') {
-          moveUpGran();
-          lastGranChangeTimeRef.current = now;
-          return true;
-        }
-      }
-      
-      return false;
-    };
-    
-    // First approach: pick granularity based on visible range (current logic)
-    // This serves as a coarse adjustment based on time range
-    let newGranularity = currentGranularity;
-    let shouldSwitchByRange = false;
-    
-    // Simple granularity selection based on visible range
-    if (visibleRangeNs > 10 * 86400_000_000_000) {  // > 10 days
-      newGranularity = GRANULARITIES['1d'];
-    } else if (visibleRangeNs > 86400_000_000_000) {  // > 1 day
-      newGranularity = GRANULARITIES['1h'];
-    } else if (visibleRangeNs > 3600_000_000_000) {  // > 1 hour
-      newGranularity = GRANULARITIES['1m'];
-    } else if (visibleRangeNs > 60_000_000_000) {  // > 1 minute
-      newGranularity = GRANULARITIES['1s'];
-    } else {
-      newGranularity = GRANULARITIES['1t'];
+    // Simply trigger the callback with the visible range, no auto gran switching
+    if (onVisibleRangeChangeWithGranularity) {
+      onVisibleRangeChangeWithGranularity({ from, to, visibleRangeNs });
     }
-    
-    // Apply hysteresis to avoid oscillation when changing by time range
-    shouldSwitchByRange = 
-      !currentGranularity || 
-      (newGranularity.nsSize > currentGranularity.nsSize && visibleRangeNs > 1.5 * currentGranularity.nsSize * currentGranularity.size) ||
-      (newGranularity.nsSize < currentGranularity.nsSize && visibleRangeNs < 0.75 * currentGranularity.nsSize * currentGranularity.size);
-    
-    if (shouldSwitchByRange && newGranularity !== currentGranularity) {
-      console.log(`Switching granularity from ${currentGranularity?.symbol} to ${newGranularity.symbol} due to visible range`);
-      
-      // Calculate how much to expand beyond the visible range
-      const expandedFromNs = Math.floor(fromNs - (toNs - fromNs) * 0.1);
-      const expandedToNs = Math.ceil(toNs + (toNs - fromNs) * 0.1);
-      
-      // Load data with new granularity
-      debouncedLoadData(expandedFromNs, expandedToNs, newGranularity);
-      
-      // Update last granularity change time
-      lastGranChangeTimeRef.current = now;
-      return;
-    }
-    
-    // Second approach: fine-tune granularity based on tick count if range-based approach didn't change it
-    if (!shouldSwitchByRange) {
-      // Try to switch granularity based on tick count
-      const didSwitchByTickCount = maybeSwitchGranByTickCount();
-      
-      // If we didn't switch by tick count, check if we need to fetch more data due to panning
-      if (!didSwitchByTickCount) {
-        checkDataBoundariesAndFetch(from, to);
-      }
-    }
-  }, [dynamicGranularity, currentGranularity, debouncedLoadData, moveDownGran, moveUpGran]);
+  }, [dynamicGranularity, onVisibleRangeChangeWithGranularity]);
 
   // Extract the boundary checking into a separate function for clarity
   const checkDataBoundariesAndFetch = useCallback((from: number, to: number) => {
@@ -528,14 +429,7 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
 
   // Initialize WebSocket on component mount
   useEffect(() => {
-    const ws = connectWebSocket();
-    
-    return () => {
-      if (ws) {
-        console.log('Closing WebSocket on unmount');
-        ws.close();
-      }
-    };
+    connectWebSocket();
   }, [connectWebSocket]);
 
   return {
