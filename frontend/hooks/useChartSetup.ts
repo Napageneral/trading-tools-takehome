@@ -179,7 +179,11 @@ export const useChartSetup = (
           calculateAggregates: true,
           tooltip: am5.Tooltip.new(root, {
             labelText: "Value: {valueY}"
-          })
+          }),
+          // These settings ensure proper handling of null values and gaps
+          connect: false,
+          autoGapCount: 1.1,
+          minDistance: 0
         })
       );
       
@@ -290,7 +294,8 @@ export const useChartSetup = (
         valueYField: hasOHLCData ? "close" : "value",
         valueXField: "time",
         xAxis: sbDateAxis,
-        yAxis: sbValueAxis
+        yAxis: sbValueAxis,
+        connect: false
       })
     );
 
@@ -360,6 +365,32 @@ export const useChartSetup = (
         })
       ]
     });
+
+    // Disable or remove any trend lines using the available API methods
+    try {
+      // Disable all indicators and technical analysis features which might be adding the line
+      if (stockChart.indicators) {
+        // @ts-ignore
+        stockChart.indicators.clear();
+      }
+      
+      // Clear any regression lines from the main panel
+      if (mainPanel.children) {
+        mainPanel.children.each((child) => {
+          // Look for trend lines or similar elements that might be causing the issue
+          // @ts-ignore
+          if (child.className && (
+            // @ts-ignore
+            child.className.indexOf("TrendLine") >= 0 || 
+            // @ts-ignore
+            child.className.indexOf("Regression") >= 0)) {
+            mainPanel.children.removeValue(child);
+          }
+        });
+      }
+    } catch (e) {
+      console.warn("Error removing trend lines:", e);
+    }
 
     // Load data
     if (data.length > 0) {

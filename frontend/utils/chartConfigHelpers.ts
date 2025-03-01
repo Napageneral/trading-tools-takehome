@@ -138,7 +138,15 @@ export const configureSeriesSwitcher = (
     let series;
     switch (seriesType) {
       case "line":
-        series = mainPanel.series.push(am5xy.LineSeries.new(root, newSettings));
+        // Update line series settings to handle data gaps properly
+        series = mainPanel.series.push(am5xy.LineSeries.new(root, {
+          ...newSettings, 
+          connect: false,
+          autoGapCount: 1.1,
+          minDistance: 0,
+          // Handle nulls properly
+          ignoreNulls: true
+        }));
         break;
       case "candlestick":
       case "procandlestick":
