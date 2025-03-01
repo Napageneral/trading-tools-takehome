@@ -625,9 +625,6 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
             const tickCount = calculateVisibleTickCount(from, to);
             console.log(`Updated visible tick count: ${tickCount}`);
             
-            // Dispatch a custom event to notify that the chart range has changed
-            document.dispatchEvent(new CustomEvent('chartRangeChanged'));
-            
             if (onVisibleRangeChangeWithGranularity) {
               onVisibleRangeChangeWithGranularity({ from, to, visibleRangeNs });
             }
@@ -655,9 +652,6 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
           // Calculate and update visible tick count
           const tickCount = calculateVisibleTickCount(from, to);
           console.log(`After zoom tick count: ${tickCount}`);
-          
-          // Dispatch a custom event to notify that the chart range has changed
-          document.dispatchEvent(new CustomEvent('chartRangeChanged'));
         }
       });
       
@@ -686,9 +680,6 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
           // Calculate visible tick count based on this range
           const tickCount = calculateVisibleTickCount(from, to);
           console.log(`Scrollbar rangechanged tick count: ${tickCount}`);
-          
-          // Dispatch a custom event to notify that the chart range has changed
-          document.dispatchEvent(new CustomEvent('chartRangeChanged'));
           
           // Update the visible range reference
           lastVisibleRangeRef.current = { from, to };
@@ -723,11 +714,6 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
       }
       
       loadData(seriesToLoad, chartData);
-      
-      // Dispatch event to update tick count after data is loaded
-      setTimeout(() => {
-        document.dispatchEvent(new CustomEvent('chartRangeChanged'));
-      }, 500);
     }
 
     // Handle resize
@@ -801,11 +787,6 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
         mainPanelRef.current.zoomOut();
         shouldFitOnNextLoadRef.current = false;
       }
-      
-      // Dispatch event to update tick count after data is loaded
-      setTimeout(() => {
-        document.dispatchEvent(new CustomEvent('chartRangeChanged'));
-      }, 500);
     }
   }, [data]);
 

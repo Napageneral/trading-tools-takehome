@@ -26,53 +26,39 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
   // Add state for visible tick count
   const [visibleTickCount, setVisibleTickCount] = useState<number>(0);
 
-  // Effect to update visible tick count - using a separate effect without visibleTickCount dependency
-  // to avoid unnecessary re-renders and potential stale closures
+  // Effect to update visible tick count
   useEffect(() => {
-    if (!chartRef.current) return;
-    
-    // Function to update the tick count
-    const updateTickCount = () => {
-      if (chartRef.current) {
-        const count = chartRef.current.getVisibleTickCount();
-        setVisibleTickCount(prevCount => {
-          if (prevCount !== count) {
+    // Check if chart ref is available
+    if (chartRef.current) {
+      // Set initial tick count
+      const initialCount = chartRef.current.getVisibleTickCount();
+      setVisibleTickCount(initialCount);
+      console.log('Initial visible tick count:', initialCount);
+      
+      // Set up interval to periodically update the tick count
+      const intervalId = setInterval(() => {
+        if (chartRef.current) {
+          const count = chartRef.current.getVisibleTickCount();
+          if (count !== visibleTickCount) {
             console.log('Visible tick count updated:', count);
+            setVisibleTickCount(count);
           }
-          return count;
-        });
-      }
-    };
-    
-    // Set initial tick count after a short delay to ensure chart is rendered
-    const initialTimer = setTimeout(() => {
-      updateTickCount();
-    }, 500);
-    
-    // Set up event listener for chart range changes instead of using an interval
-    document.addEventListener('chartRangeChanged', updateTickCount);
-    
-    // Still use a polling interval as a fallback - reduced frequency to every 2 seconds
-    const intervalId = setInterval(updateTickCount, 2000);
-    
-    return () => {
-      clearTimeout(initialTimer);
-      clearInterval(intervalId);
-      document.removeEventListener('chartRangeChanged', updateTickCount);
-    };
-  }, [chartRef, data]); // Only re-run when chart ref or data changes
+        }
+      }, 1000); // Update every second
+      
+      return () => clearInterval(intervalId);
+    }
+  }, [chartRef, visibleTickCount]);
 
   return (
     <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md mb-6">
-      <div className="flex justify-between items-center mb-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
         <h2 className="text-xl font-semibold">Time Series Chart</h2>
-        <div className="flex items-center gap-4">
-          <div className="text-sm text-gray-600 dark:text-gray-400 flex items-center">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span>Drag to pan, scroll to zoom, double-click to reset view</span>
-          </div>
+        <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span>Drag to pan, scroll to zoom, double-click to reset view</span>
         </div>
       </div>
       
@@ -84,28 +70,44 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
       )}
       
       {/* Chart information display */}
-      <div className="flex flex-wrap gap-4 mb-4">
+      <div className="flex flex-wrap gap-3 mb-4">
         {/* Current granularity display */}
         {currentGranularity && (
-          <div className="bg-green-50 dark:bg-green-900/30 p-2 rounded-lg">
-            <p className="text-sm">
-              <span className="font-medium">Current Granularity:</span> {currentGranularity.name}
+          <div className="bg-gray-50 dark:bg-gray-700 px-3 py-2 rounded-md border border-gray-200 dark:border-gray-600">
+            <p className="text-sm flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+              <span className="font-medium">Granularity:</span> <span className="ml-1">{currentGranularity.name}</span>
             </p>
           </div>
         )}
         
         {/* Visible tick count display */}
-        <div className="bg-blue-50 dark:bg-blue-900/30 p-2 rounded-lg">
-          <p className="text-sm">
-            <span className="font-medium">Visible Data Points:</span> {visibleTickCount}
+        <div className="bg-gray-50 dark:bg-gray-700 px-3 py-2 rounded-md border border-gray-200 dark:border-gray-600">
+          <p className="text-sm flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+            </svg>
+            <span className="font-medium">Data Points:</span> <span className="ml-1">{visibleTickCount.toLocaleString()}</span>
             {currentGranularity && (
-              <span className="ml-1 text-xs text-gray-500">
-                (min: {currentGranularity.minVal}, max: {currentGranularity.maxVal})
+              <span className="ml-2 text-xs">
+                <span className="text-gray-500">(min: {currentGranularity.minVal}, max: {currentGranularity.maxVal})</span>
                 {visibleTickCount < currentGranularity.minVal && (
-                  <span className="ml-1 text-orange-500">Too few - might switch to finer granularity</span>
+                  <span className="ml-1 text-orange-500 font-medium flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    Too few
+                  </span>
                 )}
                 {visibleTickCount > currentGranularity.maxVal && (
-                  <span className="ml-1 text-orange-500">Too many - might switch to coarser granularity</span>
+                  <span className="ml-1 text-orange-500 font-medium flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    Too many
+                  </span>
                 )}
               </span>
             )}
@@ -113,30 +115,32 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
         </div>
       </div>
       
-      {data.length > 0 ? (
+      {/* Loading indicator */}
+      {loading && (
+        <div className="flex justify-center items-center p-8">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+        </div>
+      )}
+      
+      {/* Chart component */}
+      {!loading && data && data.length > 0 && (
         <Chart
-          ref={chartRef}
           data={data}
           onVisibleRangeChangeWithGranularity={onVisibleRangeChangeWithGranularity}
+          ref={chartRef}
           height={500}
           currentGranularity={currentGranularity || undefined}
         />
-      ) : (
-        <div className="h-[500px] flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded">
-          {loading ? (
-            <div className="text-center">
-              <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mb-2"></div>
-              <p>Loading data...</p>
-            </div>
-          ) : (
-            <div className="text-center">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto mb-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-              <p className="text-gray-500">No data to display</p>
-              <p className="text-gray-400 text-sm mt-1">Try adjusting the filters or loading a dataset</p>
-            </div>
-          )}
+      )}
+      
+      {/* Empty state */}
+      {!loading && (!data || data.length === 0) && !error && (
+        <div className="flex flex-col items-center justify-center p-12 text-gray-500">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mb-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+          </svg>
+          <p className="text-lg font-medium">No data to display</p>
+          <p className="text-sm">Upload a CSV file to visualize time series data</p>
         </div>
       )}
     </div>

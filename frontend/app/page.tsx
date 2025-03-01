@@ -1,14 +1,12 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ChartHandle } from '@/components/Chart';
-import DataStats from '@/components/DataStats';
 import TimeSeriesDisplay from '@/components/TimeSeriesDisplay';
 import useStats from '@/hooks/useStats';
 import useFileUpload from '@/hooks/useFileUpload';
 import useTimeSeriesData from '@/hooks/useTimeSeriesData';
 import { GRANULARITIES, DEFAULT_GRANULARITY, Granularity, tick, oneSecond, oneMinute, hour, day } from '@/types/Granularity';
-import { formatTimestamp } from '@/utils/timeUtils';
 
 export default function Home() {
   // Use custom hooks for data management
@@ -110,57 +108,66 @@ export default function Home() {
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold mb-6">Timeseries Visualization</h1>
       
-      {/* Stats display with file upload */}
-      <div className="mb-6 bg-gray-50 dark:bg-gray-800 p-6 rounded-lg shadow">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+      {/* Stats display with file upload - improved layout */}
+      <div className="mb-6 bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
           <div className="flex-grow">
-            <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-3">Dataset Statistics</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-white dark:bg-gray-700 p-3 rounded-md shadow-sm">
-                <div className="text-sm text-gray-500 dark:text-gray-400">Total Points</div>
-                <div className="text-xl font-medium">{stats?.count?.toLocaleString() || "No data"}</div>
-              </div>
-              <div className="bg-white dark:bg-gray-700 p-3 rounded-md shadow-sm">
-                <div className="text-sm text-gray-500 dark:text-gray-400">Time Range</div>
-                <div className="text-sm font-medium">
-                  {stats?.min_timestamp_ns && stats?.max_timestamp_ns 
-                    ? `${formatTimestamp(stats.min_timestamp_ns)} to ${formatTimestamp(stats.max_timestamp_ns)}`
-                    : "No data"}
+            <h2 className="text-lg font-semibold mb-3">Dataset Statistics</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {stats && (
+                <>
+                  <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded-md">
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Total Points</p>
+                    <p className="text-xl font-semibold">{stats.count.toLocaleString()}</p>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded-md">
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Time Range</p>
+                    <p className="text-sm font-medium">
+                      {new Date(stats.min_timestamp_ns / 1_000_000).toLocaleString()} to<br />
+                      {new Date(stats.max_timestamp_ns / 1_000_000).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded-md">
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Value Range</p>
+                    <p className="text-xl font-semibold">{stats.min_value.toFixed(2)} to {stats.max_value.toFixed(2)}</p>
+                  </div>
+                </>
+              )}
+              {!stats && (
+                <div className="col-span-3 text-gray-500 italic">
+                  No dataset loaded. Please upload a CSV file to begin.
                 </div>
-              </div>
-              <div className="bg-white dark:bg-gray-700 p-3 rounded-md shadow-sm">
-                <div className="text-sm text-gray-500 dark:text-gray-400">Value Range</div>
-                <div className="text-sm font-medium">
-                  {stats?.min_value !== undefined && stats?.max_value !== undefined
-                    ? `${stats.min_value.toFixed(2)} to ${stats.max_value.toFixed(2)}`
-                    : "No data"}
-                </div>
-              </div>
+              )}
             </div>
           </div>
           
-          <div className="flex-shrink-0">
-            <div className="bg-white dark:bg-gray-700 p-4 rounded-md shadow-sm">
-              <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">Import Data</h3>
-              <div className="flex items-center">
-                <label 
-                  htmlFor="csv-upload" 
-                  className="flex items-center justify-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 cursor-pointer"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+          <div className="md:border-l md:pl-6 md:ml-2 flex flex-col justify-center">
+            <h2 className="text-lg font-semibold mb-3">Upload Dataset</h2>
+            <div className="flex flex-col">
+              <label className="mb-2 text-sm text-gray-600 dark:text-gray-300">
+                Select a CSV file to visualize
+              </label>
+              <input
+                type="file"
+                accept=".csv"
+                onChange={handleFileUpload}
+                className="block w-full text-sm text-gray-500
+                  file:mr-4 file:py-2 file:px-4
+                  file:rounded-md file:border-0
+                  file:text-sm file:font-semibold
+                  file:bg-blue-50 file:text-blue-700
+                  hover:file:bg-blue-100"
+                disabled={loading}
+              />
+              {loading && (
+                <div className="mt-2 flex items-center text-blue-600">
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
-                  Upload CSV File
-                </label>
-                <input
-                  id="csv-upload"
-                  type="file"
-                  accept=".csv"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                  disabled={loading}
-                />
-              </div>
+                  Processing...
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -172,9 +179,6 @@ export default function Home() {
           <p>{error}</p>
         </div>
       )}
-      
-      {/* Status */}
-      {loading && <div className="text-blue-500 mb-4">Loading data...</div>}
       
       {/* Chart */}
       <TimeSeriesDisplay
