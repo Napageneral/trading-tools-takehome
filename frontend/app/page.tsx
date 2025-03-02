@@ -35,6 +35,9 @@ export default function Home() {
     debugStreamLeft,
   } = useTimeSeriesData({ dynamicGranularity });
 
+  // Add state to track the user-selected granularity for debug load.
+  const [selectedGranSymbol, setSelectedGranSymbol] = useState(currentGranularity.symbol);
+
   // Load initial data when stats are available
   useEffect(() => {
     if (stats && stats.min_timestamp_ns && stats.max_timestamp_ns) {
@@ -200,10 +203,37 @@ export default function Home() {
       {/* Debug Actions */}
       <div className="mt-6 p-4 bg-gray-100 dark:bg-gray-700 rounded-md">
         <h2 className="text-lg font-semibold mb-2">Debug Actions</h2>
-        <div className="flex gap-4">
-          <button onClick={debugLoad} className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600">Debug Load</button>
-          <button onClick={debugStreamRight} className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600">Debug Stream Right</button>
-          <button onClick={debugStreamLeft} className="px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600">Debug Stream Left</button>
+        <div className="flex gap-4 items-center">
+          {/* Dropdown to select granularity */}
+          <select
+            value={selectedGranSymbol}
+            onChange={(e) => setSelectedGranSymbol(e.target.value)}
+            className="p-2 rounded-md"
+          >
+            {Object.keys(GRANULARITIES).map(symbol => (
+              <option key={symbol} value={symbol}>
+                {symbol}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={() => debugLoad(GRANULARITIES[selectedGranSymbol])}
+            className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+          >
+            Debug Load
+          </button>
+          <button
+            onClick={debugStreamRight}
+            className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600"
+          >
+            Debug Stream Right
+          </button>
+          <button
+            onClick={debugStreamLeft}
+            className="px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600"
+          >
+            Debug Stream Left
+          </button>
         </div>
       </div>
     </div>

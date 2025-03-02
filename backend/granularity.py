@@ -3,8 +3,8 @@ from typing import Optional, Dict
 
 @dataclass
 class Granularity:
-    symbol: str  # e.g. "1t", "1s", "1m"
-    name: str    # e.g. "1 tick", "1 sec", "1 min"
+    symbol: str  # e.g. "1t", "1s", "1m", "1mon"
+    name: str    # e.g. "1 tick", "1 sec", "1 min", "1 month"
     min_val: int
     max_val: int
     size: int
@@ -35,7 +35,7 @@ hour.up = day
 week = Granularity('1w', '1 week', 2, 8, 192, 604_800_000_000_000, down=day)
 day.up = week
 
-month = Granularity('1M', '1 month', 2, 24, 240, 2_592_000_000_000_000, down=week)
+month = Granularity('1mon', '1 month', 2, 24, 240, 2_592_000_000_000_000, down=week)
 week.up = month
 
 year = Granularity('1y', '1 year', 2, 10, 100, 31_536_000_000_000_000, down=month)

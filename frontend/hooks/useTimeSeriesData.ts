@@ -427,7 +427,7 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
     loadData(expandedStartNs, expandedEndNs, currentGranularity);
   }, [currentGranularity, loadData]);
 
-  // Debug function to call a WebSocket action and log response and call duration
+  // Debug function to log a WebSocket call and its duration exists in useTimeSeriesData.ts
   const debugCall = useCallback((action: string, params: any) => {
     const startTime = performance.now();
     const listener = (event: MessageEvent) => {
@@ -437,15 +437,13 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
       } catch (e) {
         console.error(e);
       }
-      const duration = performance.now() - startTime;
-      console.log(`${action} call took ${duration.toFixed(2)} ms`);
+      const serverResponseTime = performance.now() - startTime;
+      console.log(`${action} server response time: ${serverResponseTime.toFixed(2)} ms`);
       wsRef.current?.removeEventListener('message', listener);
     };
-    // If websocket is ready, attach the listener; otherwise, wait a little
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.addEventListener('message', listener);
     } else {
-      // Try to connect if not already
       connectWebSocket();
       setTimeout(() => {
         wsRef.current?.addEventListener('message', listener);
@@ -454,14 +452,23 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
     sendWsMessage({ action, ...params });
   }, [sendWsMessage, connectWebSocket]);
 
-  // Debug functions for specific actions with default parameters
-  const debugLoad = useCallback(() => {
+  // Updated debugLoad accepts an optional granularity override and updates state accordingly.
+  const debugLoad = useCallback((selectedGran?: Granularity) => {
+    const gran = selectedGran || currentGranularity;
+
+    // If a new granularity is passed in, update state immediately
+    if (selectedGran && selectedGran.symbol !== currentGranularity.symbol) {
+        console.log(`Updating granularity state to ${selectedGran.symbol} via debug load`);
+        setCurrentGranularity(selectedGran);
+    }
+    
     const startNsValue = startNs ? parseInt(startNs) : 0;
     const endNsValue = endNs ? parseInt(endNs) : 0;
+    
     debugCall('load', {
       start_ns: startNsValue,
       end_ns: endNsValue,
-      granularity: currentGranularity.symbol
+      granularity: gran.symbol
     });
   }, [startNs, endNs, currentGranularity, debugCall]);
 

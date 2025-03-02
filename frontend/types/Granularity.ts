@@ -1,7 +1,7 @@
 export class Granularity {
     constructor(
-        public symbol: string,  // e.g. "1t", "1s", "1m"
-        public name: string,    // e.g. "1 tick", "1 sec", "1 min"
+        public symbol: string,  // e.g. "1t", "1s", "1m", "1mon"
+        public name: string,    // e.g. "1 tick", "1 sec", "1 min", "1 month"
         public minVal: number,
         public maxVal: number,
         public size: number,
@@ -35,7 +35,7 @@ hour.up = day;
 export const week = new Granularity('1w', '1 week', 2, 8, 192, 604_800_000_000_000, day);
 day.up = week;
 
-export const month = new Granularity('1M', '1 month', 2, 24, 240, 2_592_000_000_000_000, week);
+export const month = new Granularity('1mon', '1 month', 2, 24, 240, 2_592_000_000_000_000, week);
 week.up = month;
 
 export const year = new Granularity('1y', '1 year', 2, 10, 100, 31_536_000_000_000_000, month);
@@ -74,7 +74,7 @@ export function getIntervalForGranularity(gran: Granularity): { timeUnit: "milli
             return { timeUnit: "day", count: 1 };
         case "1w":
             return { timeUnit: "week", count: 1 };
-        case "1M":
+        case "1mon":
             return { timeUnit: "month", count: 1 };
         case "1y":
             return { timeUnit: "year", count: 1 };

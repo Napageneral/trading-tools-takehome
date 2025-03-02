@@ -65,6 +65,21 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
     }
   }, [currentGranularity]);
 
+  // Update the chart's base interval whenever the granularity changes.
+  // This ensures the x-axis knows how to properly space & label data points.
+  useEffect(() => {
+    if (currentGranularity && mainPanelRef.current) {
+      const startChartUpdateTime = performance.now();
+      const xAxis = mainPanelRef.current.xAxes.getIndex(0) as am5xy.DateAxis<am5xy.AxisRenderer>;
+      if (xAxis) {
+        xAxis.set("baseInterval", getIntervalForGranularity(currentGranularity));
+        const chartUpdateDuration = performance.now() - startChartUpdateTime;
+        console.log(`Updated chart axis baseInterval to: ${JSON.stringify(getIntervalForGranularity(currentGranularity))}`);
+        console.log(`Chart update time: ${chartUpdateDuration.toFixed(2)} ms`);
+      }
+    }
+  }, [currentGranularity]);
+
   // Use our custom hook to set up the chart
   useChartSetup(
     {
