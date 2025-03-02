@@ -12,6 +12,7 @@ import time
 from database import get_db, init_db
 from schemas import DataPoint, DataPointResponse, TimeRangeRequest
 from granularity import GRANULARITIES, DEFAULT_GRANULARITY, Granularity
+from load_data import preprocess_aggregated_data
 
 # Initialize the database
 init_db()
@@ -38,7 +39,7 @@ def pick_granularity(visible_range_ns: int) -> str:
     Returns:
         str: The appropriate granularity symbol ('1t', '1s', '1m', etc.)
     """
-    if visible_range_ns > 10 * 86400_000_000_000:  # > 10 days
+    if visible_range_ns > 10 * 86400_000_000:  # > 10 days
         return "1d"
     elif visible_range_ns > 86400_000_000_000:     # > 1 day
         return "1h"
@@ -65,19 +66,14 @@ def get_downsampled_data(conn, start_ns: int, end_ns: int, gran: Granularity):
     """
     cursor = conn.cursor()
     
-    # For downsampling, we'll use SQL to group by time buckets
-    gran_ns = gran.ns_size
-    
-    # Using integer division to create buckets
-    cursor.execute("""
-        SELECT (timestamp_ns / ?) * ? as bucket_start, AVG(value) as avg_value
-        FROM data_points
-        WHERE timestamp_ns >= ? AND timestamp_ns <= ?
-        GROUP BY bucket_start
-        ORDER BY bucket_start
-    """, (gran_ns, gran_ns, start_ns, end_ns))
-    
-    # Convert to list of dictionaries
+    if gran.symbol == "1t":
+        # For tick-level granularity, use raw data
+        cursor.execute("SELECT timestamp_ns, value FROM data_points WHERE timestamp_ns >= ? AND timestamp_ns <= ? ORDER BY timestamp_ns", (start_ns, end_ns))
+    else:
+        # For precomputed granularities, query the aggregated table
+        table_name = f"data_points_{gran.symbol}"
+        cursor.execute(f"SELECT timestamp_ns, value FROM {table_name} WHERE timestamp_ns >= ? AND timestamp_ns <= ? ORDER BY timestamp_ns", (start_ns, end_ns))
+
     result = [{"timestamp_ns": int(row[0]), "value": float(row[1])} for row in cursor.fetchall()]
     return result
 
@@ -138,7 +134,12 @@ async def upload_data(file: UploadFile = File(...)):
                 batch
             )
             conn.commit()
-    
+
+    # Trigger preprocessing aggregated tables after data upload
+    print("Triggering preprocessing of aggregated data tables...")
+    preprocess_aggregated_data()
+    print("Aggregated data tables created.")
+
     return {"status": "success", "message": f"File uploaded and processed. {total_processed} records inserted."}
 
 @app.get("/data")
@@ -414,6 +415,57 @@ async def websocket_endpoint(websocket: WebSocket):
                     
                     # Send the granularity that was used
                     await websocket.send_json({"granularity": gran.symbol})
+            
+            elif action == "stream_left":
+                start_ns = data.get("start_ns", 0)
+                end_ns = data.get("end_ns", 0)
+                granularity_symbol = data.get("granularity")
+                if not granularity_symbol:
+                    visible_range_ns = end_ns - start_ns
+                    granularity_symbol = pick_granularity(visible_range_ns)
+                if granularity_symbol not in GRANULARITIES:
+                    await websocket.send_json({
+                        "error": f"Invalid granularity. Valid options are: {', '.join(GRANULARITIES.keys())}"
+                    })
+                    continue
+                gran = GRANULARITIES[granularity_symbol]
+                conn_state["start_ns"] = start_ns
+                conn_state["end_ns"] = end_ns
+                conn_state["granularity"] = gran
+                with get_db() as conn:
+                    results = get_downsampled_data(conn, start_ns, end_ns, gran)
+                    chunk_size = 5000
+                    for i in range(0, len(results), chunk_size):
+                        chunk = results[i:i+chunk_size]
+                        await websocket.send_json(chunk)
+                    # Signal end of data
+                    await websocket.send_json([])
+                    await websocket.send_json({"granularity": gran.symbol})
+            elif action == "stream_right":
+                start_ns_r = data.get("start_ns", 0)
+                end_ns_r = data.get("end_ns", 0)
+                granularity_symbol_r = data.get("granularity")
+                if not granularity_symbol_r:
+                    visible_range_ns_r = end_ns_r - start_ns_r
+                    granularity_symbol_r = pick_granularity(visible_range_ns_r)
+                if granularity_symbol_r not in GRANULARITIES:
+                    await websocket.send_json({
+                        "error": f"Invalid granularity. Valid options are: {', '.join(GRANULARITIES.keys())}"
+                    })
+                    continue
+                gran_r = GRANULARITIES[granularity_symbol_r]
+                conn_state["start_ns"] = start_ns_r
+                conn_state["end_ns"] = end_ns_r
+                conn_state["granularity"] = gran_r
+                with get_db() as conn:
+                    results_r = get_downsampled_data(conn, start_ns_r, end_ns_r, gran_r)
+                    chunk_size_r = 5000
+                    for i in range(0, len(results_r), chunk_size_r):
+                        chunk = results_r[i:i+chunk_size_r]
+                        await websocket.send_json(chunk)
+                    # Signal end of data
+                    await websocket.send_json([])
+                    await websocket.send_json({"granularity": gran_r.symbol})
             
             else:
                 await websocket.send_json({"error": f"Unknown action: {action}"})

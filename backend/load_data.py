@@ -1,6 +1,32 @@
 import csv
 import time
 from database import get_db, init_db
+from granularity import GRANULARITIES
+
+def preprocess_aggregated_data():
+    """Preprocess raw data into aggregated tables for each supported granularity (except tick-level)."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        for symbol, gran in GRANULARITIES.items():
+            if symbol == "1t":
+                continue
+            table_name = f"data_points_{symbol}"
+
+            # Drop the table if it exists
+            cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
+
+            # Create new aggregated table
+            cursor.execute(f"CREATE TABLE {table_name} (timestamp_ns INTEGER, value REAL)")
+
+            # Aggregate data: bucket timestamp using gran.ns_size and compute average value
+            # Note: This query calculates bucket as (timestamp_ns / ns_size) * ns_size
+            query = f"INSERT INTO {table_name} SELECT (timestamp_ns / {gran.ns_size}) * {gran.ns_size} as bucket, AVG(value) as avg_value FROM data_points GROUP BY bucket ORDER BY bucket"
+            cursor.execute(query)
+
+            # Create an index on the aggregated table for fast queries
+            cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_timestamp ON {table_name} (timestamp_ns)")
+
+        conn.commit()
 
 def load_data_from_csv(csv_file_path, batch_size=100000):
     """
@@ -77,6 +103,11 @@ def load_data_from_csv(csv_file_path, batch_size=100000):
         
         print(f"Total records in database: {count}")
         print(f"Timestamp range: {min_ts} to {max_ts}")
+
+    # Preprocess aggregated tables for rapid querying at different granularities
+    print("Preprocessing aggregated data tables for supported granularities...")
+    preprocess_aggregated_data()
+    print("Aggregated data tables created.")
 
 if __name__ == "__main__":
     load_data_from_csv("../data.csv") 

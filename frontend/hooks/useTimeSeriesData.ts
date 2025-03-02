@@ -427,6 +427,64 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
     loadData(expandedStartNs, expandedEndNs, currentGranularity);
   }, [currentGranularity, loadData]);
 
+  // Debug function to call a WebSocket action and log response and call duration
+  const debugCall = useCallback((action: string, params: any) => {
+    const startTime = performance.now();
+    const listener = (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log(`Response for ${action}:`, data);
+      } catch (e) {
+        console.error(e);
+      }
+      const duration = performance.now() - startTime;
+      console.log(`${action} call took ${duration.toFixed(2)} ms`);
+      wsRef.current?.removeEventListener('message', listener);
+    };
+    // If websocket is ready, attach the listener; otherwise, wait a little
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.addEventListener('message', listener);
+    } else {
+      // Try to connect if not already
+      connectWebSocket();
+      setTimeout(() => {
+        wsRef.current?.addEventListener('message', listener);
+      }, 500);
+    }
+    sendWsMessage({ action, ...params });
+  }, [sendWsMessage, connectWebSocket]);
+
+  // Debug functions for specific actions with default parameters
+  const debugLoad = useCallback(() => {
+    const startNsValue = startNs ? parseInt(startNs) : 0;
+    const endNsValue = endNs ? parseInt(endNs) : 0;
+    debugCall('load', {
+      start_ns: startNsValue,
+      end_ns: endNsValue,
+      granularity: currentGranularity.symbol
+    });
+  }, [startNs, endNs, currentGranularity, debugCall]);
+
+  const debugStreamRight = useCallback(() => {
+    const startNsValue = startNs ? parseInt(startNs) : 0;
+    const endNsValue = endNs ? parseInt(endNs) : 0;
+    debugCall('stream_right', {
+      start_ns: startNsValue,
+      end_ns: endNsValue,
+      granularity: currentGranularity.symbol
+    });
+  }, [startNs, endNs, currentGranularity, debugCall]);
+
+  const debugStreamLeft = useCallback(() => {
+    const startNsValue = startNs ? parseInt(startNs) : 0;
+    const endNsValue = endNs ? parseInt(endNs) : 0;
+    debugCall('stream_left', {
+      start_ns: startNsValue,
+      end_ns: endNsValue,
+      granularity: currentGranularity.symbol
+    });
+  }, [startNs, endNs, currentGranularity, debugCall]);
+
   // Initialize WebSocket on component mount
   useEffect(() => {
     connectWebSocket();
@@ -450,7 +508,11 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
     setDynamicGranularity: (value: boolean) => {
       // We're not using a state setter here because this is a controlled option from outside
       options.dynamicGranularity = value;
-    }
+    },
+    // Return debug functions so that they can be used in page.tsx
+    debugLoad,
+    debugStreamRight,
+    debugStreamLeft
   };
 };
 

@@ -30,6 +30,9 @@ export default function Home() {
     loadData,
     handleVisibleRangeChangeWithGranularity,
     setGranularity,
+    debugLoad,
+    debugStreamRight,
+    debugStreamLeft,
   } = useTimeSeriesData({ dynamicGranularity });
 
   // Load initial data when stats are available
@@ -193,6 +196,16 @@ export default function Home() {
         onGranularityChange={setGranularity}
         chartRef={chartRef}
       />
+
+      {/* Debug Actions */}
+      <div className="mt-6 p-4 bg-gray-100 dark:bg-gray-700 rounded-md">
+        <h2 className="text-lg font-semibold mb-2">Debug Actions</h2>
+        <div className="flex gap-4">
+          <button onClick={debugLoad} className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600">Debug Load</button>
+          <button onClick={debugStreamRight} className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600">Debug Stream Right</button>
+          <button onClick={debugStreamLeft} className="px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600">Debug Stream Left</button>
+        </div>
+      </div>
     </div>
   );
 } 
