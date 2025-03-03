@@ -6,7 +6,7 @@ import TimeSeriesDisplay from '@/components/TimeSeriesDisplay';
 import useStats from '@/hooks/useStats';
 import useFileUpload from '@/hooks/useFileUpload';
 import useTimeSeriesData from '@/hooks/useTimeSeriesData';
-import { GRANULARITIES, DEFAULT_GRANULARITY, Granularity, tick, oneSecond, oneMinute, hour, day } from '@/types/Granularity';
+import {tick, oneSecond, oneMinute, hour, day } from '@/types/Granularity';
 
 export default function Home() {
   const { stats, error: statsError } = useStats();
@@ -15,6 +15,7 @@ export default function Home() {
   const dynamicGranularity = true;
   
   const chartRef = useRef<ChartHandle>(null);
+  const initialLoadDone = useRef(false);
   
   const {
     chartData,
@@ -33,12 +34,15 @@ export default function Home() {
 
   useEffect(() => {
     if (stats && stats.min_timestamp_ns && stats.max_timestamp_ns) {
+      if (initialLoadDone.current) return;
+      initialLoadDone.current = true;
+      
       const startNsValue = stats.min_timestamp_ns;
       const endNsValue = stats.max_timestamp_ns;
       
       if (dynamicGranularity) {
         const visibleRangeNs = endNsValue - startNsValue;
-        let initialGranularity = currentGranularity;
+        let initialGranularity;
         
         if (visibleRangeNs > 10 * 86400_000_000_000) {
           initialGranularity = day;
@@ -55,7 +59,7 @@ export default function Home() {
         loadData(startNsValue, endNsValue, initialGranularity);
       }
     }
-  }, [stats, dynamicGranularity, loadData, currentGranularity]);
+  }, [stats, dynamicGranularity, loadData]);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -72,7 +76,7 @@ export default function Home() {
         
         const visibleRangeNs = endNsValue - startNsValue;
         
-        let initialGranularity = currentGranularity;
+        let initialGranularity;
         if (visibleRangeNs > 10 * 86400_000_000_000) {
           initialGranularity = day;
         } else if (visibleRangeNs > 86400_000_000_000) {
@@ -170,7 +174,7 @@ export default function Home() {
       
       <TimeSeriesDisplay
         data={chartData}
-        loading={loading}
+        loading={dataLoading}
         error={dataError}
         currentGranularity={currentGranularity}
         startNs={startNs}

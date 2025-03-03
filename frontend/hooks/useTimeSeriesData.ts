@@ -26,7 +26,11 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
   const pendingActionRef = useRef<string | null>(null);
   
   const connectWebSocket = useCallback(() => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+    if (
+      wsRef.current &&
+      (wsRef.current.readyState === WebSocket.OPEN ||
+        wsRef.current.readyState === WebSocket.CONNECTING)
+    ) {
       console.log('WebSocket already connected');
       return wsRef.current;
     }
@@ -113,7 +117,7 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
     };
 
     return ws;
-  }, [startNs, endNs]);
+  }, []);
 
   const sendWsMessage = useCallback((message: any) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
