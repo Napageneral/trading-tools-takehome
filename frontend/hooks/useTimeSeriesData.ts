@@ -476,24 +476,40 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
   }, [startNs, endNs, currentGranularity, debugCall]);
 
   const debugStreamRight = useCallback(() => {
-    const startNsValue = startNs ? parseInt(startNs) : 0;
-    const endNsValue = endNs ? parseInt(endNs) : 0;
+    let startNsValue, endNsValue;
+    const shiftNs = Number(currentGranularity.size) * 1e9;
+    if (chartData.length > 0) {
+      const lastPoint = chartData[chartData.length - 1];
+      startNsValue = Math.floor(Number(lastPoint.time) * 1e9);
+      endNsValue = startNsValue + shiftNs;
+    } else {
+      startNsValue = startNs ? parseInt(startNs) : 0;
+      endNsValue = startNsValue + shiftNs;
+    }
     debugCall('stream_right', {
       start_ns: startNsValue,
       end_ns: endNsValue,
       granularity: currentGranularity.symbol
     });
-  }, [startNs, endNs, currentGranularity, debugCall]);
+  }, [chartData, currentGranularity, startNs, debugCall]);
 
   const debugStreamLeft = useCallback(() => {
-    const startNsValue = startNs ? parseInt(startNs) : 0;
-    const endNsValue = endNs ? parseInt(endNs) : 0;
+    let startNsValue, endNsValue;
+    const shiftNs = Number(currentGranularity.size) * 1e9;
+    if (chartData.length > 0) {
+      const firstPoint = chartData[0];
+      endNsValue = Math.floor(Number(firstPoint.time) * 1e9);
+      startNsValue = endNsValue - shiftNs;
+    } else {
+      endNsValue = endNs ? parseInt(endNs) : 0;
+      startNsValue = endNsValue - shiftNs;
+    }
     debugCall('stream_left', {
       start_ns: startNsValue,
       end_ns: endNsValue,
       granularity: currentGranularity.symbol
     });
-  }, [startNs, endNs, currentGranularity, debugCall]);
+  }, [chartData, currentGranularity, endNs, debugCall]);
 
   // Initialize WebSocket on component mount
   useEffect(() => {
