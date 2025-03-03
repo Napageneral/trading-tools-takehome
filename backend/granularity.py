@@ -17,10 +17,10 @@ class Granularity:
 
 # Create granularity instances
 tick = Granularity('1t', '1 tick', 1, 400, 2000, 1)
-one_s = Granularity('1s', '1 second', 2, 120, 1200, 1_000_000_000, down=tick)
+one_s = Granularity('1s', '1 second', 2, 120, 2400, 1_000_000_000, down=tick)
 tick.up = one_s
 
-one_min = Granularity('1m', '1 minute', 2, 10, 240, 60_000_000_000, down=one_s)
+one_min = Granularity('1m', '1 minute', 2, 10, 2400, 60_000_000_000, down=one_s)
 one_s.up = one_min
 
 five_min = Granularity('5m', '5 minutes', 2, 24, 1344, 300_000_000_000, down=one_min)

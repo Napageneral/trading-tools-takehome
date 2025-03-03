@@ -53,29 +53,37 @@ def pick_granularity(visible_range_ns: int) -> str:
 # Function to get data with proper downsampling based on granularity
 def get_downsampled_data(conn, start_ns: int, end_ns: int, gran: Granularity):
     """
-    Get downsampled data based on the granularity
-    
-    Args:
-        conn: Database connection
-        start_ns: Start timestamp in nanoseconds
-        end_ns: End timestamp in nanoseconds
-        gran: Granularity object
-        
-    Returns:
-        list: List of data points
+    Fetch downsampled data by selecting at most gran.size data points within the time range.
+    For tick-level data, data is pulled from the main "data_points" table.
+    For aggregated granularities, the corresponding aggregated table is used.
     """
     cursor = conn.cursor()
     
     if gran.symbol == "1t":
-        # For tick-level granularity, use raw data
-        cursor.execute("SELECT timestamp_ns, value FROM data_points WHERE timestamp_ns >= ? AND timestamp_ns <= ? ORDER BY timestamp_ns", (start_ns, end_ns))
+        # For tick-level data, query the main table and limit to gran.size rows.
+        sql = """
+            SELECT timestamp_ns, value 
+            FROM data_points 
+            WHERE timestamp_ns >= ? AND timestamp_ns <= ? 
+            ORDER BY timestamp_ns 
+            LIMIT ?
+        """
     else:
-        # For precomputed granularities, query the aggregated table
+        # Use the aggregated table corresponding to the granularity.
         table_name = f"data_points_{gran.symbol}"
-        cursor.execute(f"SELECT timestamp_ns, value FROM {table_name} WHERE timestamp_ns >= ? AND timestamp_ns <= ? ORDER BY timestamp_ns", (start_ns, end_ns))
-
-    result = [{"timestamp_ns": int(row[0]), "value": float(row[1])} for row in cursor.fetchall()]
-    return result
+        sql = f"""
+            SELECT timestamp_ns, value 
+            FROM {table_name} 
+            WHERE timestamp_ns >= ? AND timestamp_ns <= ? 
+            ORDER BY timestamp_ns 
+            LIMIT ?
+        """
+    
+    params = (start_ns, end_ns, gran.size)
+    cursor.execute(sql, params)
+    rows = cursor.fetchall()
+    
+    return [{"timestamp_ns": int(row[0]), "value": float(row[1])} for row in rows]
 
 @app.get("/")
 async def root():

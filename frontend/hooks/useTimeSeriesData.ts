@@ -173,6 +173,7 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
     // Update displayed time range
     setStartNs(startNsValue.toString());
     setEndNs(endNsValue.toString());
+    console.log(`[useTimeSeriesData] loadData: Updated time range - startNs: ${startNsValue}, endNs: ${endNsValue}, granularity: ${granularity.symbol}`);
     
     // Check cache first
     const cacheKey = `${startNsValue}_${endNsValue}_${granularity.symbol}`;
@@ -233,6 +234,7 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
     
     // Update the current granularity state
     setCurrentGranularity(granularity);
+    console.log(`[useTimeSeriesData] setGranularity: Changing granularity to ${granularity.symbol}. Current time range: startNs: ${startNs ? startNs : '0'}, endNs: ${endNs ? endNs : '0'}`);
     
     // Trigger loading new data for the current time range with the new granularity
     loadData(startNsValue, endNsValue, granularity);
@@ -342,6 +344,7 @@ export const useTimeSeriesData = (options: TimeSeriesDataOptions = {}) => {
       const rightOverflowPercent = currentRange > 0 ? (rightOverflow / currentRange) * 100 : 0;
       
       console.log(`Left overflow: ${leftOverflowPercent.toFixed(2)}%, Right overflow: ${rightOverflowPercent.toFixed(2)}%`);
+      console.log(`[useTimeSeriesData] checkDataBoundariesAndFetch: Loaded data boundaries - firstTimeNs: ${firstTimeNs}, lastTimeNs: ${lastTimeNs}`);
       
       // If we've panned significantly outside our current data range, fetch more data
       if (from * 1_000_000_000 < firstTimeNs && leftOverflowPercent > 10) {

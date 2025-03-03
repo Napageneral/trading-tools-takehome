@@ -193,6 +193,8 @@ export default function Home() {
         loading={loading}
         error={dataError}
         currentGranularity={currentGranularity}
+        overallStartNs={stats ? stats.min_timestamp_ns : undefined}
+        overallEndNs={stats ? stats.max_timestamp_ns : undefined}
         startNs={startNs}
         endNs={endNs}
         onVisibleRangeChangeWithGranularity={handleVisibleRangeChangeWithGranularity}
@@ -210,7 +212,7 @@ export default function Home() {
             onChange={(e) => setSelectedGranSymbol(e.target.value)}
             className="p-2 rounded-md"
           >
-            {Object.keys(GRANULARITIES).map(symbol => (
+            {Object.keys(GRANULARITIES).map((symbol) => (
               <option key={symbol} value={symbol}>
                 {symbol}
               </option>
@@ -222,17 +224,18 @@ export default function Home() {
           >
             Debug Load
           </button>
-          <button
-            onClick={debugStreamRight}
-            className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600"
-          >
-            Debug Stream Right
-          </button>
+          {/* Debug Stream Left button comes before Debug Stream Right */}
           <button
             onClick={debugStreamLeft}
             className="px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600"
           >
             Debug Stream Left
+          </button>
+          <button
+            onClick={debugStreamRight}
+            className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600"
+          >
+            Debug Stream Right
           </button>
         </div>
       </div>

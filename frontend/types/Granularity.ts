@@ -17,10 +17,10 @@ export class Granularity {
 
 // Create granularity instances
 export const tick = new Granularity('1t', '1 tick', 1, 400, 2000, 1);
-export const oneSecond = new Granularity('1s', '1 second', 2, 120, 1200, 1_000_000_000, tick);
+export const oneSecond = new Granularity('1s', '1 second', 2, 120, 2400, 1_000_000_000, tick);
 tick.up = oneSecond;
 
-export const oneMinute = new Granularity('1m', '1 minute', 2, 10, 240, 60_000_000_000, oneSecond);
+export const oneMinute = new Granularity('1m', '1 minute', 2, 10, 2400, 60_000_000_000, oneSecond);
 oneSecond.up = oneMinute;
 
 export const fiveMinutes = new Granularity('5m', '5 minutes', 2, 24, 1344, 300_000_000_000, oneMinute);
