@@ -256,6 +256,27 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
     }
   }, [data]);
 
+  // Add a useEffect to zoom to the loadedRange if it is smaller than the overall dataset bounds
+  useEffect(() => {
+    if (loadedRange && datasetBounds) {
+      // Convert dataset bounds from ns to seconds
+      const overallDurationSec = (datasetBounds.end - datasetBounds.start) / 1e9;
+      const loadedDurationSec = loadedRange.to - loadedRange.from;
+      // Only adjust zoom if the loaded range is smaller than the overall bounds
+      if (loadedDurationSec < overallDurationSec) {
+        const xAxis = mainPanelRef.current?.xAxes.getIndex(0);
+        if (xAxis) {
+          // Cast xAxis to DateAxis to use zoomToDates, and convert seconds to Date objects
+          const dateAxis = xAxis as am5xy.DateAxis<am5xy.AxisRenderer>;
+          const newMin = loadedRange.from * 1000;
+          const newMax = loadedRange.to * 1000;
+          dateAxis.zoomToDates(new Date(newMin), new Date(newMax));
+          console.log(`Zoomed to loaded range: ${newMin} ms to ${newMax} ms`);
+        }
+      }
+    }
+  }, [loadedRange, datasetBounds]);
+
   // Note: Regions where no data is loaded will appear as gaps rather than placeholder zeros.
 
   return (
