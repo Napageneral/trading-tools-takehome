@@ -83,7 +83,7 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
     }
   }, [chartRef, visibleTickCount]);
 
-  const [selectedGranSymbol, setSelectedGranSymbol] = useState(currentGranularity ? currentGranularity.name : Object.keys(GRANULARITIES)[0]);
+  const [selectedGranSymbol, setSelectedGranSymbol] = useState("1h");
 
   return (
     <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md mb-6">
