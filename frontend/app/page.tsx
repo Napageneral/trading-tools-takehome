@@ -9,17 +9,13 @@ import useTimeSeriesData from '@/hooks/useTimeSeriesData';
 import { GRANULARITIES, DEFAULT_GRANULARITY, Granularity, tick, oneSecond, oneMinute, hour, day } from '@/types/Granularity';
 
 export default function Home() {
-  // Use custom hooks for data management
   const { stats, error: statsError } = useStats();
   const { uploadFile, loading: uploadLoading, error: uploadError } = useFileUpload();
   
-  // Dynamic granularity is always enabled
   const dynamicGranularity = true;
   
-  // Reference to the chart component
   const chartRef = useRef<ChartHandle>(null);
   
-  // Use the time series data hook
   const {
     chartData,
     loading: dataLoading,
@@ -35,29 +31,24 @@ export default function Home() {
     debugStreamLeft,
   } = useTimeSeriesData({ dynamicGranularity });
 
-  // Add state to track the user-selected granularity for debug load.
   const [selectedGranSymbol, setSelectedGranSymbol] = useState(currentGranularity.symbol);
 
-  // Load initial data when stats are available
   useEffect(() => {
     if (stats && stats.min_timestamp_ns && stats.max_timestamp_ns) {
       const startNsValue = stats.min_timestamp_ns;
       const endNsValue = stats.max_timestamp_ns;
       
-      // If dynamic granularity is enabled, fetch initial data with appropriate granularity
       if (dynamicGranularity) {
         const visibleRangeNs = endNsValue - startNsValue;
-        // Use the visible range to determine granularity
         let initialGranularity = currentGranularity;
         
-        // Simple granularity selection based on visible range
-        if (visibleRangeNs > 10 * 86400_000_000_000) {  // > 10 days
+        if (visibleRangeNs > 10 * 86400_000_000_000) {
           initialGranularity = day;
-        } else if (visibleRangeNs > 86400_000_000_000) {  // > 1 day
+        } else if (visibleRangeNs > 86400_000_000_000) {
           initialGranularity = hour;
-        } else if (visibleRangeNs > 3600_000_000_000) {  // > 1 hour
+        } else if (visibleRangeNs > 3600_000_000_000) {
           initialGranularity = oneMinute;
-        } else if (visibleRangeNs > 60_000_000_000) {  // > 1 minute
+        } else if (visibleRangeNs > 60_000_000_000) {
           initialGranularity = oneSecond;
         } else {
           initialGranularity = tick;
@@ -68,7 +59,6 @@ export default function Home() {
     }
   }, [stats, dynamicGranularity, loadData, currentGranularity]);
 
-  // Handle file upload
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -78,23 +68,20 @@ export default function Home() {
     if (result.success) {
       alert(`File uploaded successfully: ${result.message}`);
       
-      // If stats were updated, set new time range and fetch data
       if (result.stats && result.stats.min_timestamp_ns && result.stats.max_timestamp_ns) {
         const startNsValue = result.stats.min_timestamp_ns;
         const endNsValue = result.stats.max_timestamp_ns;
         
-        // Fetch data with appropriate granularity
         const visibleRangeNs = endNsValue - startNsValue;
         
-        // Simple granularity selection based on visible range
         let initialGranularity = currentGranularity;
-        if (visibleRangeNs > 10 * 86400_000_000_000) {  // > 10 days
+        if (visibleRangeNs > 10 * 86400_000_000_000) {
           initialGranularity = day;
-        } else if (visibleRangeNs > 86400_000_000_000) {  // > 1 day
+        } else if (visibleRangeNs > 86400_000_000_000) {
           initialGranularity = hour;
-        } else if (visibleRangeNs > 3600_000_000_000) {  // > 1 hour
+        } else if (visibleRangeNs > 3600_000_000_000) {
           initialGranularity = oneMinute;
-        } else if (visibleRangeNs > 60_000_000_000) {  // > 1 minute
+        } else if (visibleRangeNs > 60_000_000_000) {
           initialGranularity = oneSecond;
         } else {
           initialGranularity = tick;
@@ -105,17 +92,14 @@ export default function Home() {
     }
   };
 
-  // Combine all errors
   const error = statsError || uploadError || dataError;
   
-  // Combine loading states
   const loading = uploadLoading || dataLoading;
   
   return (
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold mb-6">Timeseries Visualization</h1>
       
-      {/* Stats display with file upload - improved layout */}
       <div className="mb-6 bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
           <div className="flex-grow">
@@ -180,14 +164,12 @@ export default function Home() {
         </div>
       </div>
       
-      {/* Error display */}
       {error && (
         <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6" role="alert">
           <p>{error}</p>
         </div>
       )}
       
-      {/* Chart */}
       <TimeSeriesDisplay
         data={chartData}
         loading={loading}
@@ -202,11 +184,9 @@ export default function Home() {
         chartRef={chartRef}
       />
 
-      {/* Debug Actions */}
       <div className="mt-6 p-4 bg-gray-100 dark:bg-gray-700 rounded-md">
         <h2 className="text-lg font-semibold mb-2">Debug Actions</h2>
         <div className="flex gap-4 items-center">
-          {/* Dropdown to select granularity */}
           <select
             value={selectedGranSymbol}
             onChange={(e) => setSelectedGranSymbol(e.target.value)}
@@ -224,7 +204,6 @@ export default function Home() {
           >
             Debug Load
           </button>
-          {/* Debug Stream Left button comes before Debug Stream Right */}
           <button
             onClick={debugStreamLeft}
             className="px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600"

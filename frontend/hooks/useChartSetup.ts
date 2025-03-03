@@ -1,6 +1,3 @@
-/**
- * Custom hook for setting up the amCharts chart
- */
 import { useEffect, useRef } from 'react';
 import * as am5 from '@amcharts/amcharts5';
 import * as am5xy from '@amcharts/amcharts5/xy';
@@ -34,9 +31,6 @@ interface ChartRefs {
   mainPanelRef: React.MutableRefObject<am5stock.StockPanel | null>;
 }
 
-/**
- * Custom hook to set up and initialize amCharts
- */
 export const useChartSetup = (
   props: ChartSetupProps,
   refs: ChartRefs
@@ -63,47 +57,38 @@ export const useChartSetup = (
 
   const valueSeriesRef = useRef<any>(null);
 
-  // Initialize chart
   useEffect(() => {
     if (!chartDiv || !controlsDiv) return;
 
-    // Dispose of previous chart if it exists
     if (rootRef.current) {
       rootRef.current.dispose();
     }
 
-    // Create root element
     const root = am5.Root.new(chartDiv);
     rootRef.current = root;
 
-    // Create custom theme
     const myTheme = am5.Theme.new(root);
     myTheme.rule("Grid", ["scrollbar", "minor"]).setAll({
       visible: false
     });
 
-    // Set themes
     root.setThemes([
       am5themes_Animated.new(root),
       myTheme
     ]);
 
-    // Set global number format
     root.numberFormatter.set("numberFormat", "#,###.00");
     
-    // Set date format to show hours, minutes, and seconds
     root.dateFormatter.setAll({
       dateFormat: "yyyy-MM-dd HH:mm:ss",
       dateFields: ["time"]
     });
 
-    // Create stock chart
     const stockChart = root.container.children.push(
       am5stock.StockChart.new(root, {})
     );
     stockChartRef.current = stockChart;
 
-    // Create main panel (chart)
     const mainPanel = stockChart.panels.push(
       am5stock.StockPanel.new(root, {
         wheelY: "zoomX",
@@ -113,20 +98,18 @@ export const useChartSetup = (
     );
     mainPanelRef.current = mainPanel;
 
-    // Create value axis
     const valueAxis = mainPanel.yAxes.push(
       am5xy.ValueAxis.new(root, {
         renderer: am5xy.AxisRendererY.new(root, {
           pan: "zoom"
         }),
-        extraMin: 0.1, // adds some space for main series
+        extraMin: 0.1,
         tooltip: am5.Tooltip.new(root, {}),
         numberFormat: "#,###.00",
         extraTooltipPrecision: 2
       })
     );
 
-    // Create date axis
     const dateAxis = mainPanel.xAxes.push(
       am5xy.GaplessDateAxis.new(root, {
         baseInterval: {
@@ -140,14 +123,11 @@ export const useChartSetup = (
       })
     );
 
-    // Check if we have OHLC data
     const hasOHLCData = hasOHLCFormat(data);
 
-    // Add series
     let valueSeries;
     
     if (hasOHLCData) {
-      // Create candlestick series
       valueSeries = mainPanel.series.push(
         am5xy.CandlestickSeries.new(root, {
           name: "Value",
@@ -168,7 +148,6 @@ export const useChartSetup = (
         })
       );
     } else {
-      // Create line series for regular data
       valueSeries = mainPanel.series.push(
         am5xy.LineSeries.new(root, {
           name: "Value",
@@ -180,7 +159,6 @@ export const useChartSetup = (
           tooltip: am5.Tooltip.new(root, {
             labelText: "Value: {valueY}"
           }),
-          // These settings ensure proper handling of null values and gaps
           connect: false,
           autoGapCount: 1.1,
           minDistance: 0
@@ -194,17 +172,14 @@ export const useChartSetup = (
 
     valueSeriesRef.current = valueSeries;
 
-    // Set main value series
     stockChart.set("stockSeries", valueSeries);
 
-    // Add stock legend
     const valueLegend = mainPanel.plotContainer.children.push(
       am5stock.StockLegend.new(root, {
         stockChart: stockChart
       })
     );
 
-    // Create volume axis
     const volumeAxisRenderer = am5xy.AxisRendererY.new(root, {});
     volumeAxisRenderer.labels.template.set("forceHidden", true);
     volumeAxisRenderer.grid.template.set("forceHidden", true);
@@ -219,7 +194,6 @@ export const useChartSetup = (
       })
     );
 
-    // Add volume series
     let volumeSeries;
     
     if (hasOHLCData) {
@@ -240,7 +214,6 @@ export const useChartSetup = (
         fillOpacity: 0.5
       });
       
-      // Color volume columns by price movement
       volumeSeries.columns.template.adapters.add("fill", function(fill, target) {
         const dataItem = target.dataItem;
         if (dataItem) {
@@ -249,14 +222,12 @@ export const useChartSetup = (
         return fill;
       });
       
-      // Set main series
       stockChart.set("volumeSeries", volumeSeries);
       valueLegend.data.setAll([valueSeries, volumeSeries]);
     } else {
       valueLegend.data.setAll([valueSeries]);
     }
 
-    // Add cursor
     mainPanel.set("cursor", am5xy.XYCursor.new(root, {
       yAxis: valueAxis,
       xAxis: dateAxis,
@@ -264,7 +235,6 @@ export const useChartSetup = (
       snapToSeriesBy: "y!"
     }));
 
-    // Add scrollbar
     const scrollbar = mainPanel.set("scrollbarX", am5xy.XYChartScrollbar.new(root, {
       orientation: "horizontal",
       height: 50
@@ -304,7 +274,6 @@ export const useChartSetup = (
       fillOpacity: 0.3
     });
 
-    // Set up series type switcher
     const seriesSwitcher = configureSeriesSwitcher(
       root,
       stockChart,
@@ -312,7 +281,6 @@ export const useChartSetup = (
       valueLegend
     );
 
-    // Set up interval switcher
     const intervalSwitcher = configureIntervalSwitcher(
       root,
       stockChart,
@@ -327,7 +295,6 @@ export const useChartSetup = (
     
     intervalSwitcherRef.current = intervalSwitcher;
 
-    // Configure chart events
     configureChartEvents(
       dateAxis,
       mainPanel,
@@ -337,7 +304,6 @@ export const useChartSetup = (
       visibleTickCountRef
     );
 
-    // Stock toolbar
     const toolbar = am5stock.StockToolbar.new(root, {
       container: controlsDiv,
       stockChart: stockChart,
@@ -366,23 +332,15 @@ export const useChartSetup = (
       ]
     });
 
-    // Disable or remove any trend lines using the available API methods
     try {
-      // Disable all indicators and technical analysis features which might be adding the line
       if (stockChart.indicators) {
-        // @ts-ignore
         stockChart.indicators.clear();
       }
       
-      // Clear any regression lines from the main panel
       if (mainPanel.children) {
         mainPanel.children.each((child) => {
-          // Look for trend lines or similar elements that might be causing the issue
-          // @ts-ignore
           if (child.className && (
-            // @ts-ignore
             child.className.indexOf("TrendLine") >= 0 || 
-            // @ts-ignore
             child.className.indexOf("Regression") >= 0)) {
             mainPanel.children.removeValue(child);
           }
@@ -392,17 +350,14 @@ export const useChartSetup = (
       console.warn("Error removing trend lines:", e);
     }
 
-    // Load data
     if (data.length > 0) {
       const chartData = transformDataForChart(data);
       
-      // Load data for all series
       const seriesToLoad = [valueSeries, sbSeries];
       if (hasOHLCData && volumeSeries) {
         seriesToLoad.push(volumeSeries as any);
       }
       
-      // Load data into series
       seriesToLoad.forEach(item => {
         if (item && item.data) {
           item.data.setAll(chartData);
@@ -410,7 +365,6 @@ export const useChartSetup = (
       });
     }
 
-    // Handle resize
     const handleResize = () => {
       if (chartDiv && rootRef.current) {
         rootRef.current.resize();
@@ -433,13 +387,11 @@ export const useChartSetup = (
     currentGranularity
   ]);
 
-  // Update chart data
   useEffect(() => {
     if (!stockChartRef.current || data.length === 0) return;
 
     const chartData = transformDataForChart(data);
     
-    // Get all series that need to be updated
     const valueSeries = stockChartRef.current.get("stockSeries");
     const volumeSeries = stockChartRef.current.get("volumeSeries");
     
@@ -448,7 +400,6 @@ export const useChartSetup = (
       seriesToUpdate.push(volumeSeries);
     }
     
-    // Get scrollbar series
     if (mainPanelRef.current) {
       const scrollbar = mainPanelRef.current.get("scrollbarX") as am5xy.XYChartScrollbar;
       if (scrollbar && scrollbar.chart) {
@@ -459,31 +410,26 @@ export const useChartSetup = (
       }
     }
     
-    // Update data for all series
     seriesToUpdate.forEach(item => {
       if (item && item.data) {
         item.data.setAll(chartData);
       }
     });
     
-    // Fit content if needed
     if (shouldFitOnNextLoadRef.current && mainPanelRef.current) {
       mainPanelRef.current.zoomOut();
       shouldFitOnNextLoadRef.current = false;
     }
   }, [data, shouldFitOnNextLoadRef]);
 
-  // Update current interval when granularity changes
   useEffect(() => {
     if (currentGranularity && intervalSwitcherRef.current) {
-      // Find the item that matches the granularity
       const items = intervalSwitcherRef.current.get("items") || [];
       const matchingItemIndex = items.findIndex((item: any) => item.id === currentGranularity.symbol);
       
       if (matchingItemIndex >= 0) {
-        // Set the selected index using type assertion
         (intervalSwitcherRef.current as any).set("selectedIndex", matchingItemIndex);
       }
     }
   }, [currentGranularity, intervalSwitcherRef]);
-}; 
+};

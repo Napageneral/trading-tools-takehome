@@ -4,13 +4,11 @@ import React, { useEffect, useRef, useImperativeHandle, forwardRef, useState } f
 import * as am5 from '@amcharts/amcharts5';
 import * as am5xy from '@amcharts/amcharts5/xy';
 import * as am5stock from '@amcharts/amcharts5/stock';
-import am5themes_Animated from '@amcharts/amcharts5/themes/Animated';
-import { GRANULARITIES, Granularity, getIntervalForGranularity } from '../types/Granularity';
+import { Granularity, getIntervalForGranularity } from '../types/Granularity';
 import { useChartSetup } from '../hooks/useChartSetup';
 import { calculateVisibleTickCount } from '../utils/chartDataTransform';
 import useStats from '../hooks/useStats';
 
-// Define the props interface
 interface ChartProps {
   data: any[];
   onVisibleRangeChangeWithGranularity?: (range: { from: number; to: number; visibleRangeNs: number }) => void;
@@ -24,7 +22,6 @@ interface ChartProps {
   width?: number;
 }
 
-// Define the handle interface for ref
 export interface ChartHandle {
   fitContent: () => void;
   resetFitContent: () => void;
@@ -45,48 +42,38 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
   height = 500,
   width = 800
 }, ref) => {
-  // Chart DOM refs
   const chartDivRef = useRef<HTMLDivElement>(null);
   const controlsDivRef = useRef<HTMLDivElement>(null);
   
-  // Chart object refs
   const rootRef = useRef<am5.Root | null>(null);
   const stockChartRef = useRef<am5stock.StockChart | null>(null);
   const mainPanelRef = useRef<am5stock.StockPanel | null>(null);
   
-  // Chart state refs
   const shouldFitOnNextLoadRef = useRef(true);
   const lastVisibleRangeRef = useRef<{ from: number; to: number } | null>(null);
   const currentGranularityRef = useRef<Granularity | null>(null);
   const intervalSwitcherRef = useRef<am5stock.IntervalControl | null>(null);
   const visibleTickCountRef = useRef<number>(0);
 
-  // New state to track the overall dataset boundaries
   const [datasetBounds, setDatasetBounds] = useState<{ start: number; end: number } | null>(null);
 
-  // New state for visible range and loaded range
   const [visibleRange, setVisibleRange] = useState<{ from: number; to: number } | null>(null);
   const [loadedRange, setLoadedRange] = useState<{ from: number; to: number } | null>(null);
 
-  // Retrieve overall dataset stats using our hook
   const { stats } = useStats();
 
-  // When stats change, update the overall dataset bounds
   useEffect(() => {
     if (stats && stats.min_timestamp_ns !== undefined && stats.max_timestamp_ns !== undefined) {
       setDatasetBounds({ start: stats.min_timestamp_ns, end: stats.max_timestamp_ns });
     }
   }, [stats]);
 
-  // Update current granularity ref when prop changes
   useEffect(() => {
     if (currentGranularity) {
       currentGranularityRef.current = currentGranularity;
     }
   }, [currentGranularity]);
 
-  // Update the chart's base interval whenever the granularity changes.
-  // This ensures the x-axis knows how to properly space & label data points.
   useEffect(() => {
     if (currentGranularity && mainPanelRef.current) {
       const startChartUpdateTime = performance.now();
@@ -100,7 +87,6 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
     }
   }, [currentGranularity]);
 
-  // Use our custom hook to set up the chart
   useChartSetup(
     {
       chartDiv: chartDivRef.current,
@@ -122,7 +108,6 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
     }
   );
 
-  // Listen for fit-chart-content event
   useEffect(() => {
     const handleFitContent = () => {
       if (mainPanelRef.current) {
@@ -138,12 +123,10 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
     };
   }, []);
 
-  // Once the chart is set up, fix the xAxis domain to the overall bounds from stats.
   useEffect(() => {
     if (datasetBounds && mainPanelRef.current) {
       const xAxis = mainPanelRef.current.xAxes.getIndex(0) as am5xy.DateAxis<am5xy.AxisRenderer>;
       if (xAxis) {
-        // Convert nanoseconds to milliseconds
         const overallStartMs = datasetBounds.start / 1_000_000;
         const overallEndMs = datasetBounds.end / 1_000_000;
         xAxis.set('min', overallStartMs);
@@ -153,13 +136,11 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
     }
   }, [datasetBounds, mainPanelRef]);
 
-  // Modify getVisibleRange to fallback to overall bounds if selection is missing
   useImperativeHandle(ref, () => ({
     fitContent: () => {
       if (mainPanelRef.current && shouldFitOnNextLoadRef.current) {
         mainPanelRef.current.zoomOut();
         shouldFitOnNextLoadRef.current = false;
-        // Get visible range after zooming
         const xAxis = mainPanelRef.current.xAxes.getIndex(0) as am5xy.DateAxis<am5xy.AxisRenderer>;
         if (xAxis && xAxis.getPrivate('selectionMin' as any) && xAxis.getPrivate('selectionMax' as any)) {
           const from = (xAxis.getPrivate('selectionMin' as any) as number) / 1000;
@@ -226,7 +207,6 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
     }
   }));
 
-  // Update visible range periodically
   useEffect(() => {
     const interval = setInterval(() => {
       if (mainPanelRef.current) {
@@ -245,7 +225,6 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
     return () => clearInterval(interval);
   }, [datasetBounds, mainPanelRef]);
 
-  // Update loaded range from the data prop
   useEffect(() => {
     if (data && data.length > 0) {
       const from = data[0].time;
@@ -256,17 +235,13 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
     }
   }, [data]);
 
-  // Add a useEffect to zoom to the loadedRange if it is smaller than the overall dataset bounds
   useEffect(() => {
     if (loadedRange && datasetBounds) {
-      // Convert dataset bounds from ns to seconds
       const overallDurationSec = (datasetBounds.end - datasetBounds.start) / 1e9;
       const loadedDurationSec = loadedRange.to - loadedRange.from;
-      // Only adjust zoom if the loaded range is smaller than the overall bounds
       if (loadedDurationSec < overallDurationSec) {
         const xAxis = mainPanelRef.current?.xAxes.getIndex(0);
         if (xAxis) {
-          // Cast xAxis to DateAxis to use zoomToDates, and convert seconds to Date objects
           const dateAxis = xAxis as am5xy.DateAxis<am5xy.AxisRenderer>;
           const newMin = loadedRange.from * 1000;
           const newMax = loadedRange.to * 1000;
@@ -276,8 +251,6 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
       }
     }
   }, [loadedRange, datasetBounds]);
-
-  // Note: Regions where no data is loaded will appear as gaps rather than placeholder zeros.
 
   return (
     <div style={{ position: 'relative' }}>
@@ -289,7 +262,6 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
           height: `${height}px` 
         }}
       />
-      {/* Overlay for timestamp intervals */}
       <div style={{
         position: 'absolute',
         top: '10px',
@@ -309,4 +281,4 @@ const Chart = forwardRef<ChartHandle, ChartProps>(({
   );
 });
 
-export default Chart; 
+export default Chart;

@@ -25,22 +25,18 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
   onGranularityChange,
   chartRef
 }) => {
-  // Add state for visible tick count
   const [visibleTickCount, setVisibleTickCount] = useState<number>(0);
 
-  // Create a ref to hold the setVisibleTickCount function so it can be accessed from outside
   const setVisibleTickCountRef = useRef<(count: number) => void>((count) => {
     setVisibleTickCount(count);
   });
 
-  // Update the ref whenever setVisibleTickCount changes
   useEffect(() => {
     setVisibleTickCountRef.current = (count) => {
       setVisibleTickCount(count);
     };
   }, [setVisibleTickCount]);
 
-  // Expose the setVisibleTickCount function to the window object for debugging
   useEffect(() => {
     // @ts-ignore
     window.updateTickCount = (count: number) => {
@@ -53,27 +49,20 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
     };
   }, []);
 
-  // Wrapper for onVisibleRangeChangeWithGranularity that also updates the tick count
   const handleVisibleRangeChange = useCallback((params: { from: number; to: number; visibleRangeNs: number }) => {
-    // Update the tick count if chart ref is available
     if (chartRef.current) {
       const count = chartRef.current.getVisibleTickCount();
       setVisibleTickCount(count);
     }
     
-    // Call the original callback
     onVisibleRangeChangeWithGranularity(params);
   }, [chartRef, onVisibleRangeChangeWithGranularity]);
 
-  // Effect to update visible tick count
   useEffect(() => {
-    // Check if chart ref is available
     if (chartRef.current) {
-      // Set initial tick count
       const initialCount = chartRef.current.getVisibleTickCount();
       setVisibleTickCount(initialCount);
       
-      // Set up interval to periodically update the tick count
       const intervalId = setInterval(() => {
         if (chartRef.current) {
           const count = chartRef.current.getVisibleTickCount();
@@ -81,7 +70,7 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
             setVisibleTickCount(count);
           }
         }
-      }, 500); // Update more frequently (every 500ms)
+      }, 500);
       
       return () => clearInterval(intervalId);
     }
@@ -99,16 +88,13 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
         </div>
       </div>
       
-      {/* Error message */}
       {error && (
         <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4" role="alert">
           <p>{error}</p>
         </div>
       )}
       
-      {/* Chart information display */}
       <div className="flex flex-wrap gap-3 mb-4">
-        {/* Current granularity display */}
         {currentGranularity && (
           <div className="bg-gray-50 dark:bg-gray-700 px-3 py-2 rounded-md border border-gray-200 dark:border-gray-600">
             <p className="text-sm flex items-center">
@@ -120,7 +106,6 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
           </div>
         )}
         
-        {/* Visible tick count display */}
         <div className="bg-gray-50 dark:bg-gray-700 px-3 py-2 rounded-md border border-gray-200 dark:border-gray-600">
           <p className="text-sm flex items-center">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -152,14 +137,12 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
         </div>
       </div>
       
-      {/* Loading indicator */}
       {loading && (
         <div className="flex justify-center items-center p-8">
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
         </div>
       )}
       
-      {/* Chart component */}
       {!loading && data && data.length > 0 && (
         <Chart
           data={data}
@@ -171,7 +154,6 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
         />
       )}
       
-      {/* Empty state */}
       {!loading && (!data || data.length === 0) && !error && (
         <div className="flex flex-col items-center justify-center p-12 text-gray-500">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mb-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -185,4 +167,4 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
   );
 };
 
-export default TimeSeriesDisplay; 
+export default TimeSeriesDisplay;
