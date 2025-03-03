@@ -16,7 +16,7 @@ export const configureIntervalSwitcher = (
   onGranularityChange?: (granularity: Granularity) => void,
   onVisibleRangeChangeWithGranularity?: (range: { from: number; to: number; visibleRangeNs: number }) => void,
 ) => {
-  const allowedGranularities = ['1t', '1s', '1m', '5m', '1h', '1d'];
+  const allowedGranularities = ['1s', '1m', '5m', '1h', '1d'];
   
   const intervalItems = Object.values(GRANULARITIES)
     .filter(gran => allowedGranularities.includes(gran.symbol))

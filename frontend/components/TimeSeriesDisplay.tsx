@@ -182,11 +182,13 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
               onChange={(e) => setSelectedGranSymbol(e.target.value)}
               className="p-2 rounded-md"
             >
-              {Object.keys(GRANULARITIES).map((symbol) => (
-                <option key={symbol} value={symbol}>
-                  {symbol}
-                </option>
-              ))}
+              {Object.keys(GRANULARITIES)
+                .filter(symbol => !['1t', '1w', '1mon', '1y'].includes(symbol))
+                .map((symbol) => (
+                  <option key={symbol} value={symbol}>
+                    {symbol}
+                  </option>
+                ))}
             </select>
             <button
               onClick={() => debugLoad(GRANULARITIES[selectedGranSymbol])}
