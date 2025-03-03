@@ -1,6 +1,7 @@
 import React, { useState, useEffect, MutableRefObject, useCallback, useRef } from 'react';
 import Chart, { ChartHandle } from './Chart';
 import { Granularity } from '../types/Granularity';
+import { GRANULARITIES } from '../types/Granularity';
 
 interface TimeSeriesDisplayProps {
   data: any[];
@@ -12,6 +13,9 @@ interface TimeSeriesDisplayProps {
   onVisibleRangeChangeWithGranularity: (params: { from: number; to: number; visibleRangeNs: number }) => void;
   onGranularityChange: (granularity: Granularity) => void;
   chartRef: MutableRefObject<ChartHandle | null>;
+  debugLoad?: (gran: Granularity) => void;
+  debugStreamLeft?: () => void;
+  debugStreamRight?: () => void;
 }
 
 const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
@@ -23,7 +27,10 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
   endNs,
   onVisibleRangeChangeWithGranularity,
   onGranularityChange,
-  chartRef
+  chartRef,
+  debugLoad,
+  debugStreamLeft,
+  debugStreamRight
 }) => {
   const [visibleTickCount, setVisibleTickCount] = useState<number>(0);
 
@@ -74,7 +81,9 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
       
       return () => clearInterval(intervalId);
     }
-  }, [chartRef]);
+  }, [chartRef, visibleTickCount]);
+
+  const [selectedGranSymbol, setSelectedGranSymbol] = useState(currentGranularity ? currentGranularity.name : Object.keys(GRANULARITIES)[0]);
 
   return (
     <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md mb-6">
@@ -161,6 +170,43 @@ const TimeSeriesDisplay: React.FC<TimeSeriesDisplayProps> = ({
           </svg>
           <p className="text-lg font-medium">No data to display</p>
           <p className="text-sm">Upload a CSV file to visualize time series data</p>
+        </div>
+      )}
+
+      {debugLoad && (
+        <div className="mt-6 p-4 bg-gray-100 dark:bg-gray-700 rounded-md">
+          <h2 className="text-lg font-semibold mb-2">Debug Actions</h2>
+          <div className="flex gap-4 items-center">
+            <select
+              value={selectedGranSymbol}
+              onChange={(e) => setSelectedGranSymbol(e.target.value)}
+              className="p-2 rounded-md"
+            >
+              {Object.keys(GRANULARITIES).map((symbol) => (
+                <option key={symbol} value={symbol}>
+                  {symbol}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => debugLoad(GRANULARITIES[selectedGranSymbol])}
+              className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+            >
+              Debug Load
+            </button>
+            <button
+              onClick={debugStreamLeft}
+              className="px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600"
+            >
+              Debug Stream Left
+            </button>
+            <button
+              onClick={debugStreamRight}
+              className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600"
+            >
+              Debug Stream Right
+            </button>
+          </div>
         </div>
       )}
     </div>

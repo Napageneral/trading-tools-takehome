@@ -31,8 +31,6 @@ export default function Home() {
     debugStreamLeft,
   } = useTimeSeriesData({ dynamicGranularity });
 
-  const [selectedGranSymbol, setSelectedGranSymbol] = useState(currentGranularity.symbol);
-
   useEffect(() => {
     if (stats && stats.min_timestamp_ns && stats.max_timestamp_ns) {
       const startNsValue = stats.min_timestamp_ns;
@@ -175,49 +173,15 @@ export default function Home() {
         loading={loading}
         error={dataError}
         currentGranularity={currentGranularity}
-        overallStartNs={stats ? stats.min_timestamp_ns : undefined}
-        overallEndNs={stats ? stats.max_timestamp_ns : undefined}
         startNs={startNs}
         endNs={endNs}
         onVisibleRangeChangeWithGranularity={handleVisibleRangeChangeWithGranularity}
         onGranularityChange={setGranularity}
         chartRef={chartRef}
+        debugLoad={debugLoad}
+        debugStreamLeft={debugStreamLeft}
+        debugStreamRight={debugStreamRight}
       />
-
-      <div className="mt-6 p-4 bg-gray-100 dark:bg-gray-700 rounded-md">
-        <h2 className="text-lg font-semibold mb-2">Debug Actions</h2>
-        <div className="flex gap-4 items-center">
-          <select
-            value={selectedGranSymbol}
-            onChange={(e) => setSelectedGranSymbol(e.target.value)}
-            className="p-2 rounded-md"
-          >
-            {Object.keys(GRANULARITIES).map((symbol) => (
-              <option key={symbol} value={symbol}>
-                {symbol}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={() => debugLoad(GRANULARITIES[selectedGranSymbol])}
-            className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
-          >
-            Debug Load
-          </button>
-          <button
-            onClick={debugStreamLeft}
-            className="px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600"
-          >
-            Debug Stream Left
-          </button>
-          <button
-            onClick={debugStreamRight}
-            className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600"
-          >
-            Debug Stream Right
-          </button>
-        </div>
-      </div>
     </div>
   );
 } 
